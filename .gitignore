@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+venv/
+logs/
+ame.db
+ame.db-*
+.remote_access
+.installer_lang
+requirements.lock*
+images/uploads/*
+images/sprites/_trash/
+memories/*.md
+memories/.state.json
