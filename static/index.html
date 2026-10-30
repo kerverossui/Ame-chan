@@ -1,0 +1,2546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Ame</title>
+<!-- Drawn by the installer; without it the browser uses its default. -->
+<link rel="icon" type="image/png" href="/images/favicon.png">
+<link rel="icon" href="/images/favicon.ico">
+<style>
+  :root{
+    --bg:#131215; --bubble:#1c1a1d; --bubble-user:#2a2320;
+    --accent:#b8935a; --accent-soft:#6e5738; --text:#ece7e0; --dim:#9c948a;
+    --line:#2a2724; --innervoice:#8fc3e0;
+  }
+  * { box-sizing:border-box; }
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,'Segoe UI',sans-serif;
+    height:100vh; display:flex; flex-direction:column;
+    transition: height 0.25s ease;
+  }
+  header{
+    display:flex; align-items:center; gap:12px;
+    padding:12px 16px; border-bottom:1px solid var(--line);
+  }
+  header img{ width:40px; height:40px; border-radius:50%; object-fit:cover; }
+  header h1{ font-size:16px; margin:0; flex:1; }
+  #pinbar{
+    display:flex; gap:8px; padding:8px 16px;
+    border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+    overflow-x:auto; white-space:nowrap;
+  }
+  .chip{
+    background:var(--bubble); border-radius:20px; padding:6px 12px;
+    font-size:13px; color:var(--dim); display:inline-flex; align-items:center; gap:6px;
+    cursor:pointer; flex-shrink:0;
+  }
+  .chip:hover{ color:var(--accent); }
+  .chip.on{ color:var(--accent); }
+
+  /* In-app server console (GET /console). The launcher runs the server
+     without a console window; this is where you see what each AI process
+     is doing. */
+  #consolePanel{
+    display:none; flex-direction:column; height:38vh; min-height:160px;
+    border-top:1px solid var(--line); background:#0d0c0e;
+  }
+  #consolePanel.open{ display:flex; }
+  #consoleBar{
+    display:flex; align-items:center; gap:8px; padding:6px 12px;
+    border-bottom:1px solid var(--line); font-size:12px; color:var(--dim);
+  }
+  #consoleBar .title{ flex:1; }
+  #consoleBar button, #consoleBar select{
+    background:var(--bubble); color:var(--dim); border:1px solid var(--line);
+    border-radius:6px; padding:3px 9px; font-size:12px; cursor:pointer;
+  }
+  #consoleBar button:hover{ color:var(--accent); }
+  #consoleLines{
+    flex:1; overflow-y:auto; padding:6px 12px; margin:0;
+    font:12px/1.45 ui-monospace,Consolas,'Cascadia Mono',monospace;
+    color:#b9b2a8; white-space:pre-wrap; word-break:break-word;
+  }
+  #consoleLines .t{ color:#5f5952; }
+  #consoleLines .llm{ color:#8fc3e0; }
+  #consoleLines .turn{ color:var(--accent); font-weight:600; }
+  #consoleLines .mem{ color:#9fc79a; }
+  #consoleLines .dice{ color:#7d756c; }
+  #consoleLines .warn{ color:#d6b15e; }
+  #consoleLines .err{ color:#e07a6e; }
+  #chat{
+    flex:1; overflow-y:auto; overflow-x:hidden; padding:16px;
+    display:flex; flex-direction:column; gap:10px;
+    /* No scroll-behavior:smooth: the first load must jump to the bottom
+       at once. Smooth scrolling is requested where it's wanted. */
+    scrollbar-width: thin;
+    scrollbar-color: #3a3430 transparent;
+  }
+  /* Scrollbar matching the rest of the app's design (Chrome/Edge/Safari).
+     Not visible on mobile because iOS uses overlay bars: expected. */
+  #chat::-webkit-scrollbar{ width:10px; }
+  #chat::-webkit-scrollbar-track{ background:transparent; }
+  #chat::-webkit-scrollbar-thumb{
+    background:#3a3430;
+    border-radius:6px;
+    border:2px solid transparent;
+    background-clip:content-box;
+  }
+  #chat::-webkit-scrollbar-thumb:hover{ background:#4d453f; }
+  /* Same treatment for the panels with their own scroll */
+  .modal::-webkit-scrollbar, #pinsList::-webkit-scrollbar,
+  #summariesList::-webkit-scrollbar{ width:8px; }
+  .modal::-webkit-scrollbar-track, #pinsList::-webkit-scrollbar-track,
+  #summariesList::-webkit-scrollbar-track{ background:transparent; }
+  .modal::-webkit-scrollbar-thumb, #pinsList::-webkit-scrollbar-thumb,
+  #summariesList::-webkit-scrollbar-thumb{
+    background:#3a3430; border-radius:5px;
+    border:2px solid transparent; background-clip:content-box;
+  }
+  #inputbar{ transition: transform 0.2s ease; }
+  .bubble{
+    max-width:80%; padding:12px 14px; border-radius:14px;
+    line-height:1.45; font-size:15px;
+    overflow-wrap:break-word;
+  }
+  /* Two visual layers: dimmed italic narration, bright dialogue.
+     formatAssistantHTML decides it line by line, not the model. */
+  .msg-line{ margin:0 0 10px 0; }
+  .msg-narration{ font-style:italic; color:#9d9490; }
+  .msg-dialogue{  font-style:normal; color:#efe9e4; }
+  .msg-innervoice{ font-style:normal; color:var(--innervoice); }
+  .bubble.assistant div > div:last-child{ margin-bottom:0; }
+  /* Sprite width comes from the --sprite-w variable (Settings → sprite
+     size) and never exceeds its container. */
+  .sprite{
+    width:min(var(--sprite-w, 420px), 100%);
+    height:auto; border-radius:10px; align-self:flex-start;
+    margin-bottom:2px;
+  }
+  @media (max-width: 599px){
+    .sprite{ width:100%; }
+  }
+  /* Several sprites for one message (Continue adds one): shown one after
+     the other in a loop, inside a box that takes the .sprite size. */
+  .sprite-cycle > .sprite-frame{ display:block; width:100%; height:auto; border-radius:10px; }
+  /* Thumbnail only: the model always gets the image at full size. */
+  .attached-img-thumb{
+    max-width:220px; max-height:220px; width:auto; height:auto;
+    object-fit:cover; border-radius:10px; margin-bottom:6px;
+    display:block; cursor:zoom-in;
+  }
+  @media (max-width: 599px){
+    .attached-img-thumb{ max-width:160px; max-height:160px; }
+  }
+  #imageLightbox{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.85);
+    align-items:center; justify-content:center; z-index:50; cursor:zoom-out;
+  }
+  #imageLightbox img{
+    max-width:90vw; max-height:90vh; border-radius:8px;
+    object-fit:contain;
+  }
+  .assistant{
+    align-self:flex-start; background:var(--bubble); color:var(--text);
+  }
+  .assistant em{ color:var(--dim); }
+  .user{
+    align-self:flex-end; background:var(--bubble-user); color:var(--text);
+  }
+  .user em{ color:var(--accent); }
+  #inputbar{
+    display:flex; align-items:center; gap:10px;
+    padding:10px 16px; border-top:1px solid var(--line);
+  }
+  #inputbar input{
+    flex:1; background:var(--bubble); border:none; border-radius:24px;
+    padding:12px 16px; color:var(--text); font-size:15px; outline:none;
+    -webkit-appearance:none; appearance:none;
+  }
+  #inputbar input::-webkit-search-cancel-button,
+  #inputbar input::-webkit-search-decoration{
+    -webkit-appearance:none; appearance:none;
+  }
+  #inputbar button{
+    background:var(--accent); border:none; color:#1a1512;
+    width:40px; height:40px; border-radius:50%; font-size:18px;
+    cursor:pointer;
+  }
+  #imageButton{
+    background:var(--bubble) !important; color:var(--dim) !important;
+  }
+  .disclaimer{
+    text-align:center; font-size:11px; color:var(--dim); padding:6px;
+  }
+  #pinModal, #profileModal, #settingsModal, #memoryModal, #languageModal, #onboardingModal{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
+    align-items:center; justify-content:center; z-index:10;
+  }
+  #pinModal .box, #profileModal .box, #settingsModal .box, #memoryModal .box, #languageModal .box, #onboardingModal .box{
+    background:var(--bubble); padding:20px; border-radius:12px;
+    max-height:85vh; overflow-y:auto;
+  }
+  #pinModal .box b, #profileModal .box b, #settingsModal .box b, #memoryModal .box b, #languageModal .box b, #onboardingModal .box b{
+    color:var(--text); font-size:18px;
+  }
+  #pinModal textarea, #settingsModal textarea, #profileModal textarea, #onboardingModal textarea{
+    width:100%; height:80px; background:var(--bg); color:var(--text);
+    border:1px solid var(--line); border-radius:8px; padding:8px;
+    margin:10px 0; font-size:14px;
+  }
+  #pinModal button, #settingsModal button:not(.pin-actions button){
+    background:var(--accent); border:none; color:#1a1512;
+    padding:8px 14px; border-radius:8px; cursor:pointer; font-size:13px;
+  }
+  #profileModal label, #settingsModal label, #onboardingModal label{
+    display:block; font-size:12px; color:var(--dim); margin:12px 0 4px;
+  }
+  #profileModal input[type=text], #profileModal input[type=date], #settingsModal select, #settingsModal input[type=text], #onboardingModal input[type=text], #onboardingModal select{
+    width:100%; background:var(--bg); color:var(--text);
+    border:1px solid var(--line); border-radius:8px; padding:8px; font-size:14px;
+  }
+  /* The native date picker comes with a dark icon by default — it's
+     inverted so it shows up on the app's dark theme. */
+  #profileModal input[type=date]::-webkit-calendar-picker-indicator{
+    filter: invert(0.8);
+  }
+  #onboardingModal .box{ width:340px; }
+  #onboardingModal .save-btn{
+    background:var(--accent); border:none; color:#1a1512;
+    padding:10px 16px; border-radius:8px; cursor:pointer; margin-top:18px;
+    font-size:14px; width:100%;
+  }
+  #onboardingModal .save-btn:disabled{ opacity:.5; cursor:default; }
+  #onboardingModal .ob-step{ display:none; }
+  #onboardingModal .ob-step.active{ display:block; }
+  #onboardingModal .ob-sub{ font-size:12px; color:var(--dim); margin:6px 0 14px; }
+  .ob-provider-tab{
+    flex:1; text-align:center; padding:8px 6px; border-radius:8px;
+    background:var(--bg); border:1px solid var(--line); color:var(--dim);
+    font-size:13px; cursor:pointer;
+  }
+  .ob-provider-tab.active{ background:var(--accent); color:#1a1512; font-weight:600; border-color:var(--accent); }
+  .ob-vision-note{
+    font-size:12px; margin:6px 0 14px; padding:6px 8px; border-radius:6px;
+  }
+  .ob-vision-note.yes{ background:rgba(139,195,74,.12); color:#a8d982; }
+  .ob-vision-note.no{ background:var(--line); color:var(--dim); }
+  .avatar-row{ display:flex; align-items:center; gap:10px; margin-top:6px; }
+  .avatar-preview{
+    width:48px; height:48px; border-radius:50%; object-fit:cover;
+    background:var(--line);
+  }
+  .avatar-row button{
+    background:var(--line); border:none; color:var(--text);
+    padding:6px 10px; border-radius:6px; font-size:12px; cursor:pointer;
+  }
+  #profileModal .save-btn, #settingsModal .save-btn{
+    background:var(--accent); border:none; color:#1a1512;
+    padding:8px 14px; border-radius:8px; cursor:pointer; margin-top:16px; font-size:13px;
+  }
+  #headerAvatar{ cursor:pointer; }
+  .pin-item{
+    background:var(--bg); border-radius:8px; padding:10px; margin-bottom:8px;
+  }
+  .pin-item .pin-date{ font-size:11px; color:var(--dim); margin-bottom:4px; }
+  .pin-item textarea{
+    width:100%; background:var(--bubble); color:var(--text); border:1px solid var(--line);
+    border-radius:6px; padding:6px; font-size:13px; min-height:50px;
+  }
+  .pin-item .pin-actions{ display:flex; gap:6px; margin-top:6px; }
+  .pin-item .pin-actions button{
+    font-size:12px; padding:4px 10px; border-radius:6px; border:none;
+    cursor:pointer; color:#1a1512;
+  }
+  .pin-item .pin-save{ background:var(--accent); }
+  .pin-item .pin-delete{ background:#5c2a2a; color:#e8d8d8; }
+  .summary-item{
+    background:var(--bg); border-radius:8px; padding:10px; margin-bottom:8px;
+  }
+  .summary-item .summary-range{ font-size:11px; color:var(--dim); margin-bottom:4px; }
+  .summary-item .summary-text{ font-size:13px; color:#ddd; line-height:1.4; }
+
+  @media (max-width: 480px){
+    header{ padding:10px 12px; }
+    header h1{ font-size:15px; }
+    #pinbar{ padding:6px 10px; gap:6px; flex-wrap:nowrap; }
+    .chip{ font-size:12px; padding:5px 9px; white-space:nowrap; }
+    #chat{ padding:12px 10px; gap:8px; }
+    .bubble{ max-width:88%; font-size:14px; padding:10px 12px; }
+    #inputbar{ padding:8px 10px; gap:6px; }
+    #inputbar input{ padding:10px 12px; font-size:14px; }
+    #inputbar button{ width:36px; height:36px; font-size:16px; }
+    #pinModal .box, #profileModal .box, #settingsModal .box, #memoryModal .box, #languageModal .box, #onboardingModal .box{
+      width:92vw; max-height:80vh;
+    }
+    .avatar-row{ flex-wrap:wrap; }
+  }
+  .toast{
+    position:fixed; bottom:80px; left:50%; transform:translateX(-50%) translateY(20px);
+    background:var(--bubble); color:var(--text); padding:10px 18px; border-radius:20px;
+    font-size:13px; border:1px solid var(--line); opacity:0; transition:all 0.3s ease;
+    z-index:50; white-space:nowrap;
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+  .lang-option{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 12px; border-radius:8px; margin-bottom:6px;
+    background:var(--bg); cursor:pointer; font-size:14px; color:var(--text);
+  }
+  .lang-option.active{ background:var(--accent); color:#1a1512; font-weight:600; }
+.typing-dots{color:#9c948a;font-style:italic}
+.reply-actions{align-self:flex-start; margin-top:-4px; display:flex; gap:6px; align-items:center; flex-wrap:wrap}
+.reply-actions button{background:#1c1a1d;border:1px solid #2a2724;color:#ccc;border-radius:16px;padding:5px 14px;font-size:12px;cursor:pointer}
+.reply-actions button:disabled{opacity:.45;cursor:default}
+.reply-actions .ver{display:flex;align-items:center;gap:2px;color:#9c948a;font-size:12px}
+.reply-actions .ver button{padding:4px 9px}
+.typing-dots i{display:inline-block;animation:ameDot 1.2s infinite both;font-style:normal}
+.typing-dots i:nth-child(2){animation-delay:.2s}.typing-dots i:nth-child(3){animation-delay:.4s}
+@keyframes ameDot{0%,80%,100%{opacity:.2}40%{opacity:1}}
+</style>
+</head>
+<body>
+
+<header>
+  <img id="headerAvatar" src="/images/ame001.png" alt="Ame" onclick="openProfileModal()" onerror="this.onerror=null;this.src='https://api.dicebear.com/7.x/thumbs/svg?seed=ame';">
+  <h1>Ame</h1>
+</header>
+
+<div id="pinbar">
+  <div class="chip" onclick="openPinModal()">📌 Pins</div>
+  <div class="chip" onclick="openMemoryModal()">🧠 Memory</div>
+  <div class="chip" onclick="openProfileModal()">👤 Profile</div>
+  <div class="chip" onclick="openSettingsModal()">⚙️ AI Settings</div>
+  <div class="chip" onclick="openLanguageModal()">🌐 Language</div>
+  <div class="chip" onclick="loadHistory()">🔄 Refresh</div>
+  <div class="chip" onclick="recalibrate(this)">🎚️ Recalibrate</div>
+  <div class="chip" id="consoleChip" onclick="toggleConsole()">🖥️ Console</div>
+  <div class="chip" onclick="window.open('/sprites', '_blank')" title="See, replace and add the emotion sprites">🎭 Sprites</div>
+</div>
+
+<div id="chat"></div>
+
+<div id="consolePanel">
+  <div id="consoleBar">
+    <span class="title" id="consoleTitle">Server console — what each AI process is doing</span>
+    <select id="consoleFilter" onchange="renderConsole()">
+      <option value="all">All</option>
+      <option value="ai">AI calls &amp; turns</option>
+      <option value="err">Warnings &amp; errors</option>
+    </select>
+    <button onclick="consolePaused=!consolePaused; this.textContent=consolePaused?'▶ Resume':'⏸ Pause'">⏸ Pause</button>
+    <button onclick="copyConsole()">Copy</button>
+    <button onclick="toggleConsole()">✕</button>
+  </div>
+  <pre id="consoleLines"></pre>
+</div>
+
+<div class="disclaimer">Everything the AI says is made up. Follow your local laws.</div>
+
+<div id="imagePreviewBar" style="display:none; padding:8px 16px; align-items:center; gap:8px;">
+  <img id="imagePreviewThumb" style="width:48px; height:48px; object-fit:cover; border-radius:8px;">
+  <span style="font-size:12px; color:#999; flex:1;">Image attached</span>
+  <button onclick="clearPendingImage()" style="background:#2a2724;border:none;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px;">✕</button>
+</div>
+
+<div id="inputbar">
+  <button id="imageButton" onclick="document.getElementById('imageFileInput').click()" style="background:#1c1a1d;border:none;color:#ccc;width:40px;height:40px;border-radius:50%;font-size:18px;cursor:pointer;flex-shrink:0;">📷</button>
+  <input type="file" id="imageFileInput" accept="image/*" style="display:none" onchange="handleImageFileSelect(this)">
+  <form id="msgForm" autocomplete="off" onsubmit="event.preventDefault(); sendMessage();" style="display:flex; flex:1; gap:10px; align-items:center;">
+    <!-- type="text", not "search": iOS shows its password/card bar on any
+         search input, whatever autocomplete says. -->
+    <input id="msgInput" type="text" placeholder="Type a message..."
+      autocomplete="off" autocorrect="off" autocapitalize="sentences"
+      spellcheck="false" name="ame-message" inputmode="text"
+      enterkeyhint="send" data-lpignore="true" data-form-type="other"
+      onkeydown="if(event.key==='Enter'){event.preventDefault(); sendMessage();}"
+      onpaste="handlePaste(event)">
+  </form>
+  <button onclick="sendMessage()">➤</button>
+</div>
+
+
+<div id="pinModal">
+  <div class="box" style="width:380px">
+    <b>Pins (permanent facts)</b>
+    <div id="pinsList" style="margin:12px 0; max-height:280px; overflow-y:auto"></div>
+    <hr style="border-color:#2a2724; margin:10px 0">
+    <textarea id="pinText" placeholder="New pin — e.g. loves hiking, has a dog named Max"></textarea>
+    <button onclick="savePin()">Add</button>
+    <button onclick="closePinModal()" style="background:#2a2724;margin-left:8px">Close</button>
+  </div>
+</div>
+
+<div id="profileModal">
+  <div class="box">
+    <b>Profile</b>
+
+    <label>Your avatar</label>
+    <div class="avatar-row">
+      <img id="userAvatarPreview" class="avatar-preview" src="">
+      <button onclick="document.getElementById('userAvatarFile').click()">Choose image</button>
+      <input type="file" id="userAvatarFile" accept="image/*" style="display:none" onchange="handleAvatarUpload(this, 'user')">
+    </div>
+
+    <label>Avatar de Ame</label>
+    <div class="avatar-row">
+      <img id="ameAvatarPreview" class="avatar-preview" src="" onerror="this.onerror=null;this.src='https://api.dicebear.com/7.x/thumbs/svg?seed=ame';">
+      <button onclick="document.getElementById('ameAvatarFile').click()">Choose image</button>
+      <input type="file" id="ameAvatarFile" accept="image/*" style="display:none" onchange="handleAvatarUpload(this, 'ame')">
+    </div>
+
+    <label>Your name</label>
+    <input type="text" id="userName" placeholder="Your name" autocomplete="off" data-lpignore="true">
+
+    <label>Your gender</label>
+    <select id="userGender">
+      <option value="male">Male</option>
+      <option value="female">Female</option>
+      <option value="other">Other</option>
+    </select>
+
+    <label>Your bio (Ame takes this into account when responding)</label>
+    <textarea id="userBio" placeholder="e.g. likes digital art, into anime"></textarea>
+
+    <label>Likes</label>
+    <textarea id="userLikes" placeholder="e.g. coffee, rainy days, old sci-fi movies" style="min-height:60px"></textarea>
+
+    <label>Dislikes</label>
+    <textarea id="userDislikes" placeholder="e.g. loud noises, being rushed" style="min-height:60px"></textarea>
+
+    <label>Birthday</label>
+    <input type="date" id="userBirthday" autocomplete="off" data-lpignore="true">
+
+    <button class="save-btn" onclick="saveProfile()">Save</button>
+    <button onclick="closeProfileModal()" style="background:#2a2724;margin-left:8px;padding:8px 14px;border-radius:8px;border:none;color:#fff;cursor:pointer">Close</button>
+  </div>
+</div>
+
+<div id="onboardingModal">
+  <div class="box">
+    <!-- Step 1: language. Always shown in each language's native name, so it
+         needs no translation of its own. -->
+    <div class="ob-step active" id="obStep1">
+      <b>🌐 Language</b>
+      <div class="ob-sub">Pick the language Ame will use with you.</div>
+      <div id="obLanguageOptions"></div>
+    </div>
+
+    <!-- Step 2: name, gender, bio. All of its text is translated in JS into
+         the language picked in step 1 (see OB_STRINGS). -->
+    <div class="ob-step" id="obStep2">
+      <b id="obStep2Title">Tell Ame about you</b>
+      <div class="ob-sub" id="obStep2Sub">This helps her respond to you naturally from the start.</div>
+
+      <label id="obNameLabel">Your name</label>
+      <input type="text" id="obUserName" autocomplete="off" data-lpignore="true">
+
+      <label id="obGenderLabel">Your gender</label>
+      <select id="obUserGender">
+        <option id="obGenderMale" value="male">Male</option>
+        <option id="obGenderFemale" value="female">Female</option>
+        <option id="obGenderOther" value="other">Other</option>
+      </select>
+
+      <label id="obBioLabel">A short bio (optional)</label>
+      <textarea id="obUserBio"></textarea>
+
+      <button class="save-btn" id="obNextBtn" onclick="goToObStep3()">Next</button>
+    </div>
+
+    <!-- Step 3: AI engine. Grok / Qwen / DeepSeek / GPT, model and API key.
+         The image-recognition notice is recomputed in JS every time the
+         provider or the chosen model changes. -->
+    <div class="ob-step" id="obStep3">
+      <b id="obStep3Title">AI engine</b>
+      <div class="ob-sub" id="obStep3Sub">Pick which AI powers Ame, and paste its API key.</div>
+
+      <div id="obProviderTabs" style="display:flex; gap:8px; margin:10px 0">
+        <div class="ob-provider-tab active" data-provider="grok" onclick="selectObProvider('grok')">Grok</div>
+        <div class="ob-provider-tab" data-provider="qwen" onclick="selectObProvider('qwen')">Qwen</div>
+        <div class="ob-provider-tab" data-provider="deepseek" onclick="selectObProvider('deepseek')">DeepSeek</div>
+        <div class="ob-provider-tab" data-provider="gpt" onclick="selectObProvider('gpt')">GPT</div>
+      </div>
+
+      <label id="obModelLabel">Model</label>
+      <input type="text" id="obModelSelect" list="obModelDatalist" autocomplete="off" placeholder="pick a preset or type a custom model name">
+      <datalist id="obModelDatalist"></datalist>
+      <div id="obVisionNote" class="ob-vision-note"></div>
+
+      <div id="obReasoningEffortWrap">
+        <label id="obReasoningEffortLabel">Reasoning effort</label>
+        <select id="obReasoningEffort">
+          <option value="none">None (cheapest)</option>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+      </div>
+
+      <div id="obThinkingWrap" style="display:none">
+        <label style="display:flex; align-items:center; gap:8px; margin-top:16px">
+          <input type="checkbox" id="obThinkingToggle">
+          <span id="obThinkingLabel">Enable extended thinking (slower, more thorough)</span>
+        </label>
+      </div>
+
+      <label id="obApiKeyLabel">API key</label>
+      <input type="text" id="obApiKey" autocomplete="off" data-lpignore="true" placeholder="xai-... / sk-...">
+      <div id="obApiKeyHint" class="ob-sub" style="margin-top:4px"></div>
+
+      <details style="margin-top:10px">
+        <summary style="cursor:pointer; font-size:12px; color:var(--dim)">Using a proxy/gateway (AgentRouter, OpenRouter, etc.)?</summary>
+        <label style="margin-top:8px">Custom base URL (optional)</label>
+        <input type="text" id="obBaseUrl" autocomplete="off" placeholder="e.g. https://agentrouter.org/v1">
+        <div class="ob-sub" style="margin-top:4px">Leave blank to use the provider's official API directly. Only set this if you're routing through a gateway service with its own endpoint and key.</div>
+      </details>
+
+      <button class="save-btn" id="obFinishBtn" onclick="finishOnboarding()">Start</button>
+    </div>
+  </div>
+</div>
+
+<div id="imageLightbox" onclick="closeImageLightbox()">
+  <img id="imageLightboxImg" src="">
+</div>
+
+<div id="memoryModal">
+  <div class="box" style="width:380px">
+    <b>Memory — what's actually sent to Ame</b>
+    <div style="font-size:12px; color:#999; margin:6px 0 12px">
+      Read-only view of the rolling summaries currently injected into
+      every prompt, plus how close the next auto-summary is.
+    </div>
+    <div id="memoryStatus" style="font-size:12px; color:#ccc; margin-bottom:10px"></div>
+    <div id="summariesList" style="max-height:340px; overflow-y:auto"></div>
+    <button onclick="closeMemoryModal()" style="background:#2a2724;margin-top:12px;padding:8px 14px;border-radius:8px;border:none;color:#fff;cursor:pointer">Close</button>
+  </div>
+</div>
+
+<div id="languageModal">
+  <div class="box" style="width:320px">
+    <b>Language</b>
+    <div style="font-size:12px; color:var(--dim); margin:6px 0 14px">
+      Ame will write both narration and dialogue in the language you pick.
+    </div>
+    <div id="languageOptions"></div>
+    <button onclick="closeLanguageModal()" style="background:var(--line);margin-top:14px;padding:8px 14px;border-radius:8px;border:none;color:var(--text);cursor:pointer">Close</button>
+  </div>
+</div>
+
+<div id="settingsModal">
+  <div class="box">
+    <b>AI engine</b>
+    <div class="ob-sub">Pick which AI powers Ame, and paste its API key.</div>
+
+    <div id="stProviderTabs" style="display:flex; gap:8px; margin:10px 0">
+      <div class="ob-provider-tab" data-provider="grok" onclick="selectStProvider('grok')">Grok</div>
+      <div class="ob-provider-tab" data-provider="qwen" onclick="selectStProvider('qwen')">Qwen</div>
+      <div class="ob-provider-tab" data-provider="deepseek" onclick="selectStProvider('deepseek')">DeepSeek</div>
+      <div class="ob-provider-tab" data-provider="gpt" onclick="selectStProvider('gpt')">GPT</div>
+    </div>
+
+    <label>Model</label>
+    <input type="text" id="stModelSelect" list="stModelDatalist" autocomplete="off" placeholder="pick a preset or type a custom model name">
+    <datalist id="stModelDatalist"></datalist>
+    <div id="stVisionNote" class="ob-vision-note"></div>
+
+    <label>API key</label>
+    <input type="text" id="stApiKey" autocomplete="off" data-lpignore="true" placeholder="xai-... / sk-...">
+    <div id="stApiKeyHint" class="ob-sub" style="margin-top:4px"></div>
+
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer; font-size:12px; color:var(--dim)">Using a proxy/gateway (AgentRouter, OpenRouter, etc.)?</summary>
+      <label style="margin-top:8px">Custom base URL (optional)</label>
+      <input type="text" id="stBaseUrl" autocomplete="off" placeholder="e.g. https://agentrouter.org/v1">
+      <div class="ob-sub" style="margin-top:4px">Leave blank to use the provider's official API directly.</div>
+    </details>
+
+    <div id="stReasoningEffortWrap">
+      <label style="margin-top:16px">Reasoning effort</label>
+      <select id="stReasoningEffort">
+        <option value="none">None (cheapest)</option>
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+      </select>
+    </div>
+
+    <div id="stThinkingWrap" style="display:none">
+      <label style="display:flex; align-items:center; gap:8px; margin-top:16px">
+        <input type="checkbox" id="stThinkingToggle">
+        <span>Enable extended thinking (slower, more thorough)</span>
+      </label>
+    </div>
+
+    <b style="display:block;margin-top:20px">Memory &amp; instructions</b>
+
+    <label>Auto-summary frequency</label>
+    <select id="summaryLevel">
+      <option value="off">No auto-summary</option>
+      <option value="low">Low</option>
+      <option value="medium">Medium</option>
+      <option value="high">High</option>
+    </select>
+    <button onclick="resummarizeNow()" style="margin-top:8px">Re-Summarize now</button>
+    <div id="resummarizeStatus" style="font-size:12px; color:#999; margin-top:6px"></div>
+
+    <label style="margin-top:16px">Sprite image size</label>
+    <select id="spriteScaleSelect">
+      <option value="100">100% (small)</option>
+      <option value="150">150%</option>
+      <option value="200">200%</option>
+      <option value="250">250%</option>
+      <option value="300">300% (default)</option>
+    </select>
+
+    <label style="margin-top:16px">
+      <input type="checkbox" id="reduceRepetition"> Reduce repetition
+    </label>
+    <label>
+      <input type="checkbox" id="dontRefuse"> Don't refuse what user says (within ToS)
+    </label>
+    <label style="margin-top:16px">Text speed (how fast her replies type out)</label>
+    <select id="typeSpeed" onchange="setTypeSpeed(this.value)">
+      <option value="slow">Slow (up to ~15 s per reply)</option>
+      <option value="normal">Normal (up to ~7 s)</option>
+      <option value="fast">Fast (up to ~3 s)</option>
+      <option value="instant">Instant</option>
+    </select>
+
+    <label title="After each reply, the model re-reads it as a line editor and fixes the few lines that sound translated or robotic: dialogue a native speaker wouldn't say that way, odd narration, the narrator explaining the moment, a job title used as a name.">
+      <input type="checkbox" id="polishSpeech"> Polish her lines (more human wording)
+    </label>
+
+    <label>Custom instruction (max 300 characters)</label>
+    <textarea id="customInstruction" maxlength="300" placeholder="e.g. avoid saying 'she feels...'; describe emotions freshly each time"></textarea>
+
+    <button class="save-btn" onclick="saveSettings()">Save</button>
+    <button onclick="closeSettingsModal()" style="background:#2a2724;margin-left:8px;padding:8px 14px;border-radius:8px;border:none;color:#fff;cursor:pointer">Close</button>
+  </div>
+</div>
+
+<script>
+const chatEl = document.getElementById('chat');
+
+let spriteScale = 300; // porcentaje, default en desktop (base 140x180 -> 420x540)
+
+function applySpriteScale(){
+  // The scale is published as a CSS variable; .sprite and the media query
+  // do the rest. On mobile the @media rule always forces 100%.
+  const w = Math.round(140 * spriteScale / 100);
+  document.documentElement.style.setProperty('--sprite-w', w + 'px');
+}
+
+function styleSprite(imgEl){
+  imgEl.className = 'sprite';
+}
+
+// ────────────────────────────────────────────────────────────────
+// "Play once" GIF player. Some sprites (ame_out_happy: she gets up and
+// walks) look wrong looping forever, and a GIF's loop count is set inside
+// the file. This decodes the GIF (GIF89a + LZW + disposal) and draws it on a
+// <canvas> once, stopping on the last frame. If parsing fails it falls back
+// to a normal <img>.
+const SINGLE_PLAY_SPRITE_TAGS = ['ame_out_happy'];
+
+function isSinglePlaySprite(url){
+  return SINGLE_PLAY_SPRITE_TAGS.some(tag => url.includes(tag + '.gif'));
+}
+
+function _gifGetU16(data, p){ return data[p] | (data[p+1] << 8); }
+
+function parseGif(buf){
+  const data = new Uint8Array(buf);
+  let p = 0;
+  const sig = String.fromCharCode(data[0],data[1],data[2],data[3],data[4],data[5]);
+  if (sig !== 'GIF87a' && sig !== 'GIF89a') throw new Error('not a gif: ' + sig);
+  p = 6;
+  const width = _gifGetU16(data,p); p+=2;
+  const height = _gifGetU16(data,p); p+=2;
+  const packed = data[p++];
+  p += 2; // bgColorIndex, pixelAspectRatio
+  const globalColorTableFlag = (packed & 0x80) !== 0;
+  const globalColorTableSize = 2 << (packed & 0x07);
+  let globalColorTable = null;
+  if (globalColorTableFlag){
+    globalColorTable = [];
+    for (let i=0;i<globalColorTableSize;i++){ globalColorTable.push([data[p],data[p+1],data[p+2]]); p+=3; }
+  }
+  let loopCount = null;
+  let gceDelay = 10, gceDisposal = 0, gceTransparentIndex = -1, gceTransparentFlag = false;
+  const frames = [];
+
+  while (p < data.length){
+    const blockType = data[p++];
+    if (blockType === 0x3B) break;
+    if (blockType === 0x21){
+      const label = data[p++];
+      if (label === 0xF9){
+        p++; // blockSize = 4
+        const gcePacked = data[p++];
+        gceDisposal = (gcePacked >> 2) & 0x07;
+        gceTransparentFlag = (gcePacked & 0x01) !== 0;
+        gceDelay = _gifGetU16(data,p); p+=2;
+        gceTransparentIndex = data[p++];
+        p++; // block terminator
+      } else if (label === 0xFF){
+        p++; // blockSize = 11
+        const appId = String.fromCharCode(...data.slice(p,p+8)); p+=8;
+        p += 3; // appAuthCode
+        while (true){
+          const sub = data[p++];
+          if (sub === 0) break;
+          if (appId === 'NETSCAPE' && sub === 3){
+            p++; // subId = 1
+            loopCount = _gifGetU16(data,p); p+=2;
+          } else { p += sub; }
+        }
+      } else {
+        while (true){ const sub = data[p++]; if (sub === 0) break; p += sub; }
+      }
+    } else if (blockType === 0x2C){
+      const left=_gifGetU16(data,p); p+=2;
+      const top=_gifGetU16(data,p); p+=2;
+      const fw=_gifGetU16(data,p); p+=2;
+      const fh=_gifGetU16(data,p); p+=2;
+      const imgPacked = data[p++];
+      const localColorTableFlag = (imgPacked & 0x80) !== 0;
+      const interlaceFlag = (imgPacked & 0x40) !== 0;
+      const localColorTableSize = 2 << (imgPacked & 0x07);
+      let colorTable = globalColorTable;
+      if (localColorTableFlag){
+        colorTable = [];
+        for (let i=0;i<localColorTableSize;i++){ colorTable.push([data[p],data[p+1],data[p+2]]); p+=3; }
+      }
+      const lzwMinCodeSize = data[p++];
+      const bytes = [];
+      while (true){
+        const sub = data[p++];
+        if (sub === 0) break;
+        for (let i=0;i<sub;i++) bytes.push(data[p++]);
+      }
+      const indices = _gifLzwDecode(bytes, lzwMinCodeSize, fw*fh);
+      frames.push({
+        left, top, width: fw, height: fh, interlace: interlaceFlag,
+        colorTable, indices,
+        delay: Math.max(gceDelay, 2) * 10,
+        disposal: gceDisposal,
+        transparentIndex: gceTransparentFlag ? gceTransparentIndex : -1,
+      });
+    } else {
+      throw new Error('unknown GIF block: 0x' + blockType.toString(16));
+    }
+  }
+  return { width, height, loopCount, frames };
+}
+
+function _gifLzwDecode(bytes, minCodeSize, pixelCount){
+  const clearCode = 1 << minCodeSize;
+  const eoiCode = clearCode + 1;
+  let codeSize = minCodeSize + 1;
+  let dict = [];
+  function resetDict(){
+    dict = [];
+    for (let i=0;i<clearCode;i++) dict.push([i]);
+    dict.push(null); dict.push(null);
+    codeSize = minCodeSize + 1;
+  }
+  resetDict();
+  const out = new Uint8Array(pixelCount);
+  let outPos = 0, bitBuf = 0, bitCount = 0, bytePos = 0;
+  function nextCode(){
+    while (bitCount < codeSize){
+      if (bytePos >= bytes.length) return eoiCode;
+      bitBuf |= bytes[bytePos++] << bitCount;
+      bitCount += 8;
+    }
+    const code = bitBuf & ((1 << codeSize) - 1);
+    bitBuf >>= codeSize; bitCount -= codeSize;
+    return code;
+  }
+  let prev = null;
+  while (outPos < pixelCount){
+    const code = nextCode();
+    if (code === clearCode){ resetDict(); prev = null; continue; }
+    if (code === eoiCode) break;
+    let entry;
+    if (code < dict.length && dict[code]) entry = dict[code];
+    else if (code === dict.length && prev) entry = prev.concat([prev[0]]);
+    else break;
+    for (let i=0;i<entry.length && outPos<pixelCount;i++) out[outPos++] = entry[i];
+    if (prev){
+      dict.push(prev.concat([entry[0]]));
+      if (dict.length === (1 << codeSize) && codeSize < 12) codeSize++;
+    }
+    prev = entry;
+  }
+  return out;
+}
+
+function _gifDeinterlace(indices, width, height){
+  const out = new Uint8Array(indices.length);
+  const passes = [{start:0,step:8},{start:4,step:8},{start:2,step:4},{start:1,step:2}];
+  let srcRow = 0;
+  for (const pass of passes){
+    for (let row = pass.start; row < height; row += pass.step){
+      const srcOffset = srcRow * width, dstOffset = row * width;
+      out.set(indices.subarray(srcOffset, srcOffset + width), dstOffset);
+      srcRow++;
+    }
+  }
+  return out;
+}
+
+function _sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+async function _playGifOnce(canvas, gif){
+  canvas.width = gif.width;
+  canvas.height = gif.height;
+  const ctx = canvas.getContext('2d');
+  const work = document.createElement('canvas');
+  work.width = gif.width; work.height = gif.height;
+  const wctx = work.getContext('2d');
+  let prevSnapshot = null;
+
+  for (let i=0; i<gif.frames.length; i++){
+    const f = gif.frames[i];
+    const rawIndices = f.interlace ? _gifDeinterlace(f.indices, f.width, f.height) : f.indices;
+
+    const frameCanvas = document.createElement('canvas');
+    frameCanvas.width = f.width; frameCanvas.height = f.height;
+    const fctx = frameCanvas.getContext('2d');
+    const imgData = fctx.createImageData(f.width, f.height);
+    for (let p=0; p<rawIndices.length; p++){
+      const idx = rawIndices[p];
+      const rgb = (f.colorTable && f.colorTable[idx]) || [0,0,0];
+      const o = p*4;
+      if (idx === f.transparentIndex){ imgData.data[o+3] = 0; }
+      else { imgData.data[o]=rgb[0]; imgData.data[o+1]=rgb[1]; imgData.data[o+2]=rgb[2]; imgData.data[o+3]=255; }
+    }
+    fctx.putImageData(imgData, 0, 0);
+
+    if (f.disposal === 3 && prevSnapshot) wctx.putImageData(prevSnapshot, 0, 0);
+    const snapshotBefore = (f.disposal === 3) ? wctx.getImageData(0,0,gif.width,gif.height) : null;
+
+    // drawImage (not putImageData) so transparency composites with what's
+    // already drawn, instead of overwriting pixels without blending.
+    wctx.drawImage(frameCanvas, f.left, f.top);
+    ctx.clearRect(0,0,gif.width,gif.height);
+    ctx.drawImage(work, 0, 0);
+
+    if (i < gif.frames.length - 1) await _sleep(f.delay);
+
+    if (f.disposal === 2) wctx.clearRect(f.left, f.top, f.width, f.height);
+    else if (f.disposal === 3) prevSnapshot = snapshotBefore;
+  }
+  // Ends here — never goes back to frames[0]. It stays on the last frame.
+}
+
+// Entry point: creates the sprite's visual element. For normal tags, the
+// usual <img> (browser loop, unchanged). For tags in
+// SINGLE_PLAY_SPRITE_TAGS, a <canvas> that plays the gif once — with an
+// automatic fallback to <img> if parsing fails.
+function createSpriteElement(url){
+  if (isSinglePlaySprite(url)){
+    const canvas = document.createElement('canvas');
+    styleSprite(canvas);
+    fetch(url)
+      .then(r => r.arrayBuffer())
+      .then(buf => _playGifOnce(canvas, parseGif(buf)))
+      .catch(() => {
+        const fallback = document.createElement('img');
+        fallback.src = url;
+        styleSprite(fallback);
+        fallback.onerror = function(){ this.remove(); };
+        if (canvas.parentNode) canvas.parentNode.replaceChild(fallback, canvas);
+      });
+    return canvas;
+  }
+  const img = document.createElement('img');
+  img.src = url;
+  styleSprite(img);
+  img.onerror = function(){ this.remove(); };
+  return img;
+}
+
+// ── Sprite sequence ──
+// A reply can have two sprites (the reply and its Continue): they take
+// turns in a loop, each for about one full play (at least 2.5 s).
+const _gifDurations = new Map();
+async function gifDuration(url){
+  if(_gifDurations.has(url)) return _gifDurations.get(url);
+  let ms = 4000;
+  try {
+    const gif = parseGif(await (await fetch(url)).arrayBuffer());
+    const one = gif.frames.reduce((t, f) => t + (f.delay || 100), 0) || 4000;
+    ms = Math.min(10000, one * Math.max(1, Math.ceil(2500 / one)));
+  } catch(_){}
+  _gifDurations.set(url, ms);
+  return ms;
+}
+
+function spriteFor(urls){
+  urls = (urls || []).filter(Boolean);
+  if(urls.length <= 1) return urls.length ? createSpriteElement(urls[0]) : null;
+  const box = document.createElement('div');
+  box.className = 'sprite sprite-cycle';
+  box.dataset.sprites = JSON.stringify(urls);
+  let i = 0, n = 0;
+  async function show(){
+    if(n > 0 && !box.isConnected) return;        // the message left the chat
+    const url = urls[i];
+    // A new element each time so the animation starts from its first
+    // frame ("#n" makes the browser restart a cached GIF).
+    const el = createSpriteElement(isSinglePlaySprite(url) ? url : url + '#' + (n++));
+    el.className = 'sprite-frame';
+    box.replaceChildren(el);
+    n = Math.max(n, 1);
+    const ms = await gifDuration(url);
+    i = (i + 1) % urls.length;
+    setTimeout(show, ms);
+  }
+  show();
+  return box;
+}
+
+async function loadSpriteScale(){
+  const res = await fetch('/settings');
+  const s = await res.json();
+  spriteScale = s.sprite_scale || 300;
+  applySpriteScale();
+}
+
+function showToast(text){
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = text;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.classList.add('show'), 10);
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 300);
+  }, 2500);
+}
+
+function escapeHTML(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Narration and dialogue are styled by what each line is, not by pairing
+// asterisks, so a missing asterisk can't shift the styling.
+//
+// Spanish marks spoken dialogue with a dash (—); English with quotation
+// marks. Dialogue is detected in these ways:
+// 1. Lines with a dash (— – -) → splitDashLine, the Spanish convention
+// 2. Text between Latin quotes " " “ ”
+// 3. Text between Japanese quotes 「」 (ja/ko/zh)
+// 4. Text between guillemets « » / 『』 → always inner voice
+//    (see splitInnerVoice)
+const DIALOGUE_LINE_RE = /^\s*[—–−\-‒–—―]\s*/;
+const QUOTED_SPAN = /[\u201C\u201D"「」『』«»][^\u201C\u201D"「」『』«»]*[\u201D"」』»]|[\u201C"「『«][^\u201C\u201D"「」『』«»\n]*["\u201D」』»]/g;
+// A dash anywhere in the line opens dialogue when it follows a space or
+// starts the line ("Deja escapar un quejido. —Pan con palta"); a lone ASCII
+// "-" inside a word never does.
+const DASH_ANYWHERE_RE = /(^|\s)[—–−‒―]/;
+
+// Splits a stretch of text into pieces: each inner-voice span (« », or
+// 『 』 in ja/ko/zh) gets the msg-innervoice class, the rest the class of
+// its context. Blue text inside a spoken line means the model used « » as
+// ordinary quotes; character.md asks for straight quotes " " there.
+const INNER_VOICE_SPAN = /«[^«»]*»|『[^『』]*』/g;
+function splitInnerVoice(text, baseCls){
+  let out = '', idx = 0, m;
+  INNER_VOICE_SPAN.lastIndex = 0;
+  while((m = INNER_VOICE_SPAN.exec(text)) !== null){
+    if(m.index > idx){
+      out += '<span class="' + baseCls + '">' + escapeHTML(text.slice(idx, m.index)) + '</span>';
+    }
+    out += '<span class="msg-innervoice">' + escapeHTML(m[0]) + '</span>';
+    idx = m.index + m[0].length;
+  }
+  if(idx < text.length){
+    out += '<span class="' + baseCls + '">' + escapeHTML(text.slice(idx)) + '</span>';
+  }
+  return out || ('<span class="' + baseCls + '">' + escapeHTML(text) + '</span>');
+}
+
+// splitDashLine: the Spanish dash convention, with state. A dash is also
+// punctuation inside narration ("…un miedo — uno que no pide…"), so not
+// every dash switches layers. Rules:
+//   · Narration: a dash only opens dialogue at the start of the line or after
+//     the end of a sentence (. ! ? … :), allowing quotes or closing marks in
+//     between. Mid-sentence it's punctuation: kept, no color change.
+//   · Dialogue: a dash after a space and attached to the next word opens a
+//     narration aside ("—Hola —dijo ella"). A dash attached to the previous
+//     word ("Yo— yo no sé") is an interruption: kept.
+//   · Aside: the next dash closes it and returns to dialogue.
+//   · A dash between two digits (ranges "3–4") is never a mark.
+// Dashes acting as marks aren't shown (the styling signals them);
+// punctuation dashes are.
+const DASH_CHARS = '—–―‒−';
+// *Action* spans. A gesture written with asterisks inside a spoken line
+// ("—I'm... *a short breath* ...explaining") is narration: when the
+// asterisks on a line pair up, each span becomes an action marker
+// (ACT_OPEN / ACT_CLOSE) that splitDashLine paints as narration before going
+// back to the layer it was in. An odd count drops all the asterisks.
+const ACT_OPEN = '\u0001', ACT_CLOSE = '\u0002';
+function markActions(line){
+  const runs = line.match(/\*+/g);
+  if(!runs) return line;
+  if(runs.length % 2) return line.replace(/\*+/g, '');
+  // A single starred word ("so *cute*") is emphasis, not a gesture: its
+  // stars are dropped and it keeps the layer it's in. Only spans with
+  // more than one word become narration.
+  return line.replace(/\*+([^*]*)\*+/g, (m, inner) =>
+    /\S\s+\S/.test(inner) ? ACT_OPEN + inner + ACT_CLOSE : inner);
+}
+function splitDashLine(line){
+  const isDash = ch => DASH_CHARS.indexOf(ch) !== -1;
+  let state, i = 0;
+  if(isDash(line.charAt(0)) || line.charAt(0) === '-'){
+    state = 'dialogue';
+    i = 1;
+    while(i < line.length && line.charAt(i) === ' ') i++;
+  } else {
+    state = 'narration0';
+  }
+  const parts = [];            // [class, text]
+  let buf = '';
+  let savedState = state;      // layer to return to after an *action*
+  let afterAction = false;     // just closed an *action* span
+  const flush = () => {
+    if(buf){ parts.push([state === 'dialogue' ? 'msg-dialogue' : 'msg-narration', buf]); }
+    buf = '';
+  };
+  for(; i < line.length; i++){
+    const ch = line.charAt(i);
+    if(ch === ACT_OPEN){
+      if(state !== 'action'){ flush(); savedState = state; state = 'action'; }
+      continue;
+    }
+    if(ch === ACT_CLOSE){
+      if(state === 'action'){ flush(); state = savedState; afterAction = true; }
+      continue;
+    }
+    if(state === 'action'){ buf += ch; continue; }    // dashes inside a gesture are punctuation
+    if(!isDash(ch)){ buf += ch; if(ch !== ' ') afterAction = false; continue; }
+    // "—I'm... *breath* —explaining": a dash right after a gesture just
+    // resumes the speech; it doesn't open a narration aside.
+    if(afterAction && state === 'dialogue' && !buf.trim()){ afterAction = false; continue; }
+    afterAction = false;
+    const prev = line.charAt(i - 1), next = line.charAt(i + 1);
+    if(/\d/.test(prev) && /\d/.test(next)){ buf += ch; continue; }   // numeric range
+    if(state === 'narration0'){
+      const antes = buf.replace(/[\s»』"'”’)]+$/, '');
+      const finDeOracion = antes === '' || /[.!?…:]$/.test(antes);
+      if(finDeOracion && next && next !== ' '){
+        flush(); state = 'dialogue';
+      } else {
+        buf += ch;                         // punctuation inside narration
+      }
+    } else if(state === 'dialogue'){
+      if((prev === ' ' || prev === '') && next && next !== ' '){
+        flush(); state = 'aside';         // opens a narration aside
+      } else {
+        buf += ch;                         // interruption "Yo— yo"
+      }
+    } else {                               // aside
+      flush(); state = 'dialogue';         // closes the aside
+    }
+  }
+  flush();
+  let html = '';
+  for(const [cls, raw] of parts){
+    const t = raw.trim();
+    if(!t) continue;
+    // space between stretches, unless the stretch starts with closing punctuation
+    const needsSpace = html && !/^[.,;:!?…)»”"'’]/.test(t);
+    html += (needsSpace ? '<span class="' + cls + '"> </span>' : '') + splitInnerVoice(t, cls);
+  }
+  return html || ('<span class="msg-dialogue">' + escapeHTML(line.replace(/[\u0001\u0002]/g, '')) + '</span>');
+}
+
+function formatAssistantHTML(content){
+  // Markup the model sometimes slips in (<br>, <b>, **bold**): shown as
+  // plain text, never as literal tags. The server cleans new replies too;
+  // this covers old ones and text while it streams.
+  content = content
+    .replace(/\s*<\s*(br|\/p|p)\s*\/?\s*>\s*/gi, '\n')
+    .replace(/<\/?\s*(b|i|u|em|strong|span|div|small|s|mark|font)\b[^>]*>/gi, '')
+    .replace(/(\*\*|__)(.+?)\1/g, '$2');
+  return content
+    .split(/\n/)
+    .map(raw => {
+      const marked = markActions(raw).trim();
+      const line = marked.replace(/[\u0001\u0002]/g, '').trim();   // plain text, for the checks and Case 2
+      if(!line) return '';
+
+      // Case 1: the line has a dash (at the start, or anywhere after a space),
+      // so there's dash dialogue somewhere, possibly with narration before the
+      // first dash or asides between dashes ([narration] —dialogue —tag—
+      // dialogue). Only the dash family (— – ― ‒ −) counts, never an ASCII
+      // hyphen inside a word ("N-no").
+      // A line that opens with quotes is quoted dialogue: Case 2 handles it.
+      // English prose uses dashes as punctuation too ("She looks up — tired.
+      // \"You're early.\""), so a line with quotes goes to the dash walk only if
+      // it really has dash dialogue; otherwise the quotes decide.
+      const hasQuotes = /["\u201C][^"\u201C\u201D\n]+["\u201D]/.test(line);
+      const dashDialogue = /^\s*[—–―‒−-]/.test(line) || /[.!?…:]["'\u201D\u2019»)]*\s*[—–―‒−][^\s—–―‒−]/.test(line);
+      if((DASH_ANYWHERE_RE.test(line) || line.charAt(0) === '-') && !/^["\u201C「]/.test(line)
+         && (dashDialogue || !hasQuotes)){
+        // A stateful walk, see splitDashLine.
+        return '<div class="msg-line">' + splitDashLine(marked) + '</div>';
+      }
+
+      // Case 2: look for quoted stretches (Latin + Japanese + Spanish)
+      let html = '', idx = 0, m;
+      QUOTED_SPAN.lastIndex = 0;
+      while((m = QUOTED_SPAN.exec(line)) !== null){
+        if(m.index > idx){
+          const narr = line.slice(idx, m.index).trim();
+          // A space on both sides when it sits between two quotes.
+          if(narr) html += '<span class="msg-narration">' + (idx > 0 ? ' ' : '') + escapeHTML(narr) + ' </span>';
+        }
+        html += '<span class="' + ((m[0][0] === '\u00AB' || m[0][0] === '\u300E') ? 'msg-innervoice' : 'msg-dialogue') + '">' + escapeHTML(m[0]) + '</span>';
+        idx = m.index + m[0].length;
+      }
+      if(idx < line.length){
+        const tail = line.slice(idx).trim();
+        if(tail) html += '<span class="msg-narration">' + (idx>0?' ':'') + escapeHTML(tail) + '</span>';
+      }
+      if(!html) html = '<span class="msg-narration">' + escapeHTML(line) + '</span>';
+      return '<div class="msg-line">' + html + '</div>';
+    })
+    .join('');
+}
+
+function formatUserHTML(content){
+  return escapeHTML(content)
+    .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+    .replace(/\n/g, '<br>');
+}
+
+function openImageLightbox(src){
+  document.getElementById('imageLightboxImg').src = src;
+  document.getElementById('imageLightbox').style.display = 'flex';
+}
+function closeImageLightbox(){
+  document.getElementById('imageLightbox').style.display = 'none';
+}
+
+function renderMessage(role, content, {withContinue=false, sprite=null, sprites=null, imagePath=null,
+                                       canRegenerate=false, versionsN=1, versionIdx=0,
+                                       continued=false} = {}){
+  // Only one active "Continue" button at a time: remove the previous one if it exists
+  const oldBtn = document.getElementById('continueBtnWrap');
+  if(oldBtn) oldBtn.remove();
+
+  const spriteList = (sprites && sprites.length) ? sprites : (sprite ? [sprite] : []);
+  if(role === 'assistant' && spriteList.length){
+    const spriteImg = spriteFor(spriteList);
+    spriteImg.style.marginBottom = '2px';
+    chatEl.appendChild(spriteImg);
+  }
+
+  const div = document.createElement('div');
+  div.className = 'bubble ' + role;
+
+  if(imagePath){
+    const attachedImg = document.createElement('img');
+    attachedImg.src = imagePath;
+    attachedImg.className = 'attached-img-thumb';
+    attachedImg.onerror = function(){ this.remove(); };
+    attachedImg.onclick = function(){ openImageLightbox(imagePath); };
+    div.appendChild(attachedImg);
+  }
+  const textDiv = document.createElement('div');
+  textDiv.innerHTML = (role === 'assistant')
+    ? formatAssistantHTML(content)
+    : formatUserHTML(content);
+  div.appendChild(textDiv);
+
+  chatEl.appendChild(div);
+
+  if(role === 'assistant' && withContinue){
+    const wrap = document.createElement('div');
+    wrap.id = 'continueBtnWrap';
+    wrap.className = 'reply-actions';
+    chatEl.appendChild(wrap);
+    wrap.innerHTML = replyActionsHTML(canRegenerate, versionsN, versionIdx, continued);
+    // Keep a reference to the bubble so the text can be merged into it
+    div.dataset.continuable = 'true';
+  }
+
+  // No scrolling here (loadHistory renders in a loop); whoever adds a single
+  // message asks for the scroll.
+  return div;
+}
+
+// ── Robust scroll to the bottom ─────────────────────────────────────
+// One instant scroll after rendering, then re-anchored while sprites and
+// images finish loading and change the height.
+let stickToBottom = true;
+
+function scrollChatToBottom(smooth){
+  chatEl.scrollTo({ top: chatEl.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+}
+
+// If the user scrolls up to read, we stop dragging them to the bottom.
+chatEl.addEventListener('scroll', () => {
+  stickToBottom = (chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight) < 80;
+});
+
+// When the content changes height (sprites/images that finish loading),
+// re-anchor to the bottom if appropriate.
+new ResizeObserver(() => { if(stickToBottom) scrollChatToBottom(false); })
+  .observe(chatEl);
+
+// A Continue in flight. Its target bubble is fixed at click time, and a new
+// message waits until the continuation is done.
+let continueInFlight = null;
+
+function continueLast(btnEl){
+  if(continueInFlight) return continueInFlight;
+  continueInFlight = _continueLast(btnEl).finally(() => { continueInFlight = null; });
+  return continueInFlight;
+}
+
+// ── Reply actions: Continue, Regenerate, ‹ versions › ──
+// Continue extends a reply once: the reply and its continuation, whose two
+// sprites then take turns in a loop.
+function replyActionsHTML(canRegenerate, n, idx, continued){
+  const w = document.getElementById('continueBtnWrap');
+  if(w) Object.assign(w.dataset, {regen: canRegenerate ? '1' : '', n: String(n), idx: String(idx),
+                                  continued: continued ? '1' : ''});
+  let h = continued ? '' : '<button onclick="continueLast(this)">▶ Continue</button>';
+  if(canRegenerate) h += '<button onclick="regenerateLast(this)" title="Write this reply again">↻ Regenerate</button>';
+  if(canRegenerate && n > 1){
+    h += '<span class="ver"><button onclick="selectVersion(' + (idx - 1) + ')"' + (idx <= 0 ? ' disabled' : '') + '>‹</button>'
+       + (idx + 1) + ' / ' + n
+       + '<button onclick="selectVersion(' + (idx + 1) + ')"' + (idx >= n - 1 ? ' disabled' : '') + '>›</button></span>';
+  }
+  return h;
+}
+
+// The last reply's bubble and the sprite above it.
+function lastReplyParts(){
+  const wrap = document.getElementById('continueBtnWrap');
+  const bubble = wrap && wrap.previousElementSibling;
+  if(!bubble || !bubble.classList.contains('assistant')) return null;
+  const sp = bubble.previousElementSibling;
+  return {wrap, bubble, sprite: (sp && sp.classList.contains('sprite')) ? sp : null};
+}
+
+let regenerating = false;
+async function regenerateLast(btnEl){
+  if(regenerating || continueInFlight) return;
+  const parts = lastReplyParts();
+  if(!parts) return;
+  regenerating = true;
+  btnEl.disabled = true;
+  // The old reply leaves the screen; it stays available as version ‹ 1 ›.
+  if(parts.sprite) parts.sprite.remove();
+  parts.bubble.remove();
+  parts.wrap.remove();
+  const thinking = document.createElement('div');
+  thinking.className = 'bubble assistant pending';
+  thinking.innerHTML = '<span class="typing-dots"><i>.</i><i>.</i><i>.</i></span>';
+  chatEl.appendChild(thinking);
+  stickToBottom = true;
+  scrollChatToBottom(true);
+  try {
+    const st = await streamChat(null, null, thinking, '/regenerate_stream');
+    if(!st.done){
+      if(st.error){
+        // Failed: the server put the old reply back — show the chat as it is.
+        showToast('⚠️ ' + st.error);
+      } else {
+        // The connection dropped mid-way (phone asleep…): the server still
+        // finishes the turn — wait for it before redrawing.
+        thinking.innerHTML = '<em style="color:#c9a55a">' + escapeHTML(chatStr('reconnecting')) + '</em>';
+        await waitForTurnEnd();
+      }
+      await loadHistory();
+      return;
+    }
+    const data = st.done;
+    thinking.remove();
+    const bubble = renderMessage('assistant', data.reply, {
+      withContinue: true, sprite: data.sprite, canRegenerate: true,
+      versionsN: data.versions_n || 1, versionIdx: data.version_idx || 0});
+    const cont = document.getElementById('continueBtnWrap');
+    if(cont) cont.style.visibility = 'hidden';
+    stickToBottom = true;
+    await typeOut(bubble.lastElementChild, data.reply);
+    if(cont) cont.style.visibility = '';
+    scrollChatToBottom(true);
+  } finally {
+    regenerating = false;
+  }
+}
+
+// Polls until the server has no turn in progress (or ~90 s pass).
+async function waitForTurnEnd(){
+  for(let i = 0; i < 45; i++){
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const h = await (await fetch('/history?limit=1')).json();
+      if(h.length && h[h.length - 1].role === 'assistant') return;
+    } catch(_){}
+  }
+}
+
+async function selectVersion(idx){
+  if(regenerating || continueInFlight) return;
+  const parts = lastReplyParts();
+  if(!parts) return;
+  const res = await fetch('/select_version', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({index: idx})});
+  const data = await res.json();
+  if(!res.ok){ if(data.detail) showToast('⚠️ ' + data.detail); return; }
+  parts.bubble.lastElementChild.innerHTML = formatAssistantHTML(data.reply);
+  const spriteEl = spriteFor(data.sprites || []);
+  if(parts.sprite && spriteEl) parts.sprite.replaceWith(spriteEl);
+  else if(parts.sprite) parts.sprite.remove();
+  else if(spriteEl) parts.bubble.insertAdjacentElement('beforebegin', spriteEl);
+  parts.wrap.innerHTML = replyActionsHTML(true, data.versions_n, data.version_idx, data.continued);
+}
+
+async function _continueLast(btnEl){
+  let continuedOk = false;
+  btnEl.disabled = true;
+  btnEl.textContent = '...';
+  // The bubble this button belongs to — decided now, not when the answer
+  // arrives (by then another bubble may be the last one).
+  const wrapEl = btnEl.closest('#continueBtnWrap');
+  let target = wrapEl && wrapEl.previousElementSibling;
+  if(!target || !target.classList.contains('assistant') || target.classList.contains('pending')){
+    const bubbles = chatEl.querySelectorAll('.bubble.assistant:not(.pending)');
+    target = bubbles[bubbles.length - 1];
+  }
+  try {
+    const res = await fetch('/continue', {method: 'POST'});
+    const data = await res.json();
+    if(data.continuation || (data.detail || '').includes('already continued')) continuedOk = true;
+    if(!res.ok && data.detail) showToast('⚠️ ' + data.detail);
+    if(data.continuation && target){
+      const lastBubble = target;
+      const more = document.createElement('div');
+      lastBubble.appendChild(more);
+      stickToBottom = true;
+      const typing = typeOut(more, data.continuation);
+      if(data.sprite){
+        // The sprite goes above the bubble. The message keeps all its sprites
+        // (data.sprites) and they take turns. The element is replaced, not its
+        // .src, because a play-once sprite is a <canvas>.
+        const prev = lastBubble.previousElementSibling;
+        const spriteImg = spriteFor(data.sprites && data.sprites.length ? data.sprites : [data.sprite]);
+        if(prev && prev.classList && prev.classList.contains('sprite')){
+          prev.replaceWith(spriteImg);
+        } else {
+          lastBubble.insertAdjacentElement('beforebegin', spriteImg);
+        }
+      }
+      await typing;
+      scrollChatToBottom(true);
+    }
+  } finally {
+    // Only THIS button: by now a newer reply may have its own Continue.
+    // If it's still the last reply, its buttons come back (Continue again,
+    // Regenerate, versions).
+    if(wrapEl && wrapEl.isConnected){
+      const d = wrapEl.dataset;
+      wrapEl.innerHTML = replyActionsHTML(d.regen === '1', parseInt(d.n || '1', 10),
+                                          parseInt(d.idx || '0', 10), continuedOk || d.continued === '1');
+    }
+  }
+}
+
+async function recalibrate(el){
+  // Stops sending the earlier conversation word for word; nothing is
+  // deleted. Texts follow the UI language (English if there's no
+  // translation).
+  let lang = 'en';
+  try {
+    const s = await (await fetch('/settings')).json();
+    lang = (s.language || 'en').split('-')[0];
+  } catch(_){}
+  const S = RECAL_STRINGS[lang] || RECAL_STRINGS['en'];
+
+  if(!confirm(S.confirm)) return;
+  const original = el.textContent;
+  el.textContent = S.working;
+  el.style.pointerEvents = 'none';
+  try{
+    const res = await fetch('/recalibrate', {method: 'POST'});
+    const data = await res.json();
+    if(!res.ok || !data.ok) throw new Error(data.detail || 'fail');
+    showToast(S.done(data.cleared, data.summarized));
+  }catch(e){
+    showToast(S.fail);
+  }finally{
+    el.textContent = original;
+    el.style.pointerEvents = '';
+  }
+}
+
+async function loadHistory(){
+  chatEl.innerHTML = '';
+  const res = await fetch('/history');
+  const data = await res.json();
+  data.forEach((m, i) => {
+    const isLast = i === data.length - 1 && m.role === 'assistant';
+    renderMessage(m.role, m.content, {withContinue: isLast, sprite: m.sprite, sprites: m.sprites, imagePath: m.image_path,
+                                      canRegenerate: isLast && i > 0 && data[i - 1].role === 'user',
+                                      versionsN: m.versions_n || 1, versionIdx: m.version_idx || 0,
+                                      continued: !!m.continued});
+  });
+
+  // A single instant scroll once everything has been rendered.
+  stickToBottom = true;
+  scrollChatToBottom(false);
+
+  // Images that finish loading later change the height: re-anchor as each
+  // one loads.
+  chatEl.querySelectorAll('img').forEach(img => {
+    if(!img.complete){
+      img.addEventListener('load', () => { if(stickToBottom) scrollChatToBottom(false); }, {once:true});
+    }
+  });
+  requestAnimationFrame(() => { if(stickToBottom) scrollChatToBottom(false); });
+}
+
+let pendingImagePath = null;
+
+async function uploadImageFile(file){
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch('/upload_image', { method: 'POST', body: formData });
+  if(!res.ok) { showToast('⚠️ Could not upload image'); return; }
+  const data = await res.json();
+  pendingImagePath = data.path;
+  const thumb = document.getElementById('imagePreviewThumb');
+  thumb.src = data.path;
+  document.getElementById('imagePreviewBar').style.display = 'flex';
+}
+
+function handleImageFileSelect(input){
+  const file = input.files[0];
+  if(!file) return;
+  uploadImageFile(file);
+  input.value = '';
+}
+
+function handlePaste(event){
+  const items = event.clipboardData?.items;
+  if(!items) return;
+  for(const item of items){
+    if(item.type.startsWith('image/')){
+      event.preventDefault();
+      const file = item.getAsFile();
+      if(file) uploadImageFile(file);
+      return;
+    }
+  }
+}
+
+function clearPendingImage(){
+  pendingImagePath = null;
+  document.getElementById('imagePreviewBar').style.display = 'none';
+  document.getElementById('imagePreviewThumb').src = '';
+}
+
+// One message at a time: while one is on its way, Enter does nothing and
+// the text stays in the box.
+let sending = false;
+async function sendMessage(){
+  if(sending || regenerating) return;
+  const input = document.getElementById('msgInput');
+  const text = input.value.trim();
+  const imagePath = pendingImagePath;
+  if(!text && !imagePath) return;
+  sending = true;
+  try { await _sendMessage(input, text, imagePath); }
+  finally { sending = false; }
+}
+
+async function _sendMessage(input, text, imagePath){
+
+  renderMessage('user', text || '(image)', {imagePath});
+  input.value = '';
+  clearPendingImage();
+
+  const thinking = document.createElement('div');
+  thinking.className = 'bubble assistant pending';
+  thinking.innerHTML = '<span class="typing-dots"><i>.</i><i>.</i><i>.</i></span>';
+  chatEl.appendChild(thinking);
+  stickToBottom = true;
+  scrollChatToBottom(true);
+
+  // A Continue still working: let it finish first, so this turn sees it.
+  if(continueInFlight){ try { await continueInFlight; } catch(_){} }
+  while(regenerating) await new Promise(r => setTimeout(r, 200));
+
+  // Baseline for recovery: ts of the last message already stored, measured
+  // with the server's clock (the phone's may differ).
+  let baselineTs = 0;
+  try {
+    const bres = await fetch('/history?limit=1');
+    const bh = await bres.json();
+    if(bh.length) baselineTs = bh[bh.length-1].ts || 0;
+  } catch(_){}
+
+  try {
+    // Streaming first; the all-at-once request is the fallback.
+    const st = await streamChat(text, imagePath, thinking);
+    let data;
+    if(st.done){
+      data = st.done;
+    } else if(st.error){
+      thinking.innerHTML = '<em style="color:#c9857a">⚠️ ' + escapeHTML(String(st.error)) + '</em>';
+      stickToBottom = true;
+      scrollChatToBottom(true);
+      return;
+    } else if(st.started){
+      throw new Error('stream cut');           // text arrived, then the connection dropped
+    } else {
+      const res = await fetch('/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message: text, image_path: imagePath})
+      });
+      data = await res.json();
+      // The backend returns the real reason in data.detail when it fails
+      // (no credits, rate limit, rejected key).
+      if(!res.ok || !data.reply){
+        const reason = data.detail || chatStr('unknown');
+        thinking.innerHTML = '<em style="color:#c9857a">⚠️ ' + escapeHTML(String(reason)) + '</em>';
+        stickToBottom = true;
+        scrollChatToBottom(true);
+        return;
+      }
+    }
+
+    // The reply is typed out once it's final (language check and line editor
+    // applied), so the text on screen never changes under the reader.
+    thinking.remove();
+    const bubble = renderMessage('assistant', data.reply, {withContinue: true, sprite: data.sprite,
+                                                         canRegenerate: true, versionsN: data.versions_n || 1,
+                                                         versionIdx: data.version_idx || 0});
+    const cont = document.getElementById('continueBtnWrap');
+    if(cont) cont.style.visibility = 'hidden';   // until she's done typing
+    stickToBottom = true;
+    await typeOut(bubble.lastElementChild, data.reply);
+    if(cont) cont.style.visibility = '';
+    scrollChatToBottom(true);
+  } catch(e) {
+    // The connection dropped mid-reply (common on mobile Safari): the server
+    // usually finishes and stores it anyway, so the history is checked a few
+    // times before showing an error.
+    thinking.innerHTML = '<em style="color:#c9a55a">' + escapeHTML(chatStr('reconnecting')) + '</em>';
+    const recovered = await tryRecoverReply(text, thinking, baselineTs);
+    if(!recovered){
+      thinking.innerHTML = '<em style="color:#c9857a">' + escapeHTML(chatStr('noServer')) + '</em>';
+    }
+  }
+}
+
+// ── Typewriter ──
+// Her reply is typed out once it's final. Each speed is a time budget:
+// short replies type at a steady pace, long ones speed up so they never
+// take longer than the budget. Text appears a word at a time, and a click on
+// the bubble shows the rest at once.
+const TYPE_SPEEDS = {
+  slow:    {minCps: 40,  maxSeconds: 15},
+  normal:  {minCps: 90,  maxSeconds: 7},
+  fast:    {minCps: 200, maxSeconds: 3},
+  instant: null,
+};
+let TYPE_MODE = 'normal';
+try {
+  const v = localStorage.getItem('ameTypeMode');
+  if(v && v in TYPE_SPEEDS) TYPE_MODE = v;
+  else if(localStorage.getItem('ameTypeCps') === '0') TYPE_MODE = 'instant';   // old setting
+} catch(_){}
+function setTypeSpeed(v){
+  TYPE_MODE = (v in TYPE_SPEEDS) ? v : 'normal';
+  try { localStorage.setItem('ameTypeMode', TYPE_MODE); } catch(_){}
+}
+try { document.getElementById('typeSpeed').value = TYPE_MODE; } catch(_){}
+function typeCpsFor(length){
+  const sp = TYPE_SPEEDS[TYPE_MODE];
+  if(!sp) return 0;                                  // instant
+  return Math.max(sp.minCps, length / sp.maxSeconds);
+}
+
+function dotsHTML(label){
+  return '<span class="typing-dots">' + escapeHTML(label.replace(/^…\s*/, ''))
+       + ' <i>.</i><i>.</i><i>.</i></span>';
+}
+
+// Types the final text into `el` at reading speed while the chat follows
+// it down; resolves when done (a click shows it all at once).
+function typeOut(el, text){
+  if(!el) return Promise.resolve();
+  el.innerHTML = '';
+  const tw = makeTypewriter(el);
+  return new Promise(res => { tw.play(text, () => { el.style.cursor = ''; res(); }); });
+}
+
+function makeTypewriter(bubble){
+  let target = '', shown = 0, raf = null, last = 0, onDone = null, skipAll = false;
+  const visible = t => t.replace(/\[\[[^\]]*\]?\]?\s*$/, '').replace(/\[\[\s*sprite[^\]]*\]\]/gi, '');
+  bubble.style.cursor = 'pointer';
+  bubble.addEventListener('click', () => { skipAll = true; kick(); });
+  let painted = -1;
+  function frame(ts){
+    const dt = last ? (ts - last) / 1000 : 0;
+    last = ts;
+    const vis = visible(target);
+    const cps = typeCpsFor(vis.length);
+    if(skipAll || cps <= 0) shown = vis.length;
+    else shown = Math.min(vis.length, shown + dt * cps);
+    // Cut at the end of a word, so no half-words flicker on screen.
+    let n = Math.floor(shown);
+    if(n < vis.length){
+      const sp = vis.lastIndexOf(' ', n);
+      const nl = vis.lastIndexOf('\n', n);
+      n = Math.max(sp, nl, 0);
+    }
+    if(n !== painted){                 // repaint only when something new shows
+      painted = n;
+      bubble.innerHTML = formatAssistantHTML(vis.slice(0, n)) || '<em>...</em>';
+      if(stickToBottom) scrollChatToBottom(false);
+    }
+    if(shown < vis.length){ raf = requestAnimationFrame(frame); }
+    else { raf = null; last = 0; if(onDone){ const f = onDone; onDone = null; f(); } }
+  }
+  function kick(){ if(!raf) raf = requestAnimationFrame(frame); }
+  return {
+    set(t){ target = t; kick(); },
+    play(t, done){ target = t; shown = 0; onDone = done; kick(); },
+    // The final text can differ from what streamed: keep what's on screen up
+    // to where both agree, then type the rest.
+    finalize(finalText){
+      const onScreen = visible(target).slice(0, Math.floor(shown));
+      let i = 0;
+      while(i < onScreen.length && i < finalText.length && onScreen[i] === finalText[i]) i++;
+      shown = i; target = finalText;
+      return new Promise(res => { onDone = res; kick(); });
+    },
+  };
+}
+
+// Reads POST /chat_stream (server-sent events) and paints the reply into
+// the waiting bubble as it arrives. Returns {done:{reply,sprite}} when the
+// turn finished, {error} for a readable failure, {started:true} if text
+// had started and the connection then dropped, or {} if streaming isn't
+// available at all (the caller then uses /chat).
+async function streamChat(text, imagePath, bubble, url = '/chat_stream'){
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: url === '/chat_stream' ? JSON.stringify({message: text, image_path: imagePath}) : '{}'
+    });
+  } catch(_){ return {}; }
+  if(!res.ok || !res.body){
+    try { const d = await res.json(); if(d && d.detail) return {error: d.detail}; } catch(_){}
+    return {};
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '', started = false;
+  try {
+    while(true){
+      const {value, done} = await reader.read();
+      if(done) break;
+      buf += decoder.decode(value, {stream: true});
+      let cut;
+      while((cut = buf.indexOf('\n\n')) !== -1){
+        const block = buf.slice(0, cut); buf = buf.slice(cut + 2);
+        const ev = (block.match(/^event: (.*)$/m) || [])[1];
+        const raw = (block.match(/^data: (.*)$/m) || [])[1];
+        let data = {};
+        try { data = raw ? JSON.parse(raw) : {}; } catch(_){}
+        if(ev === 'thinking' && !started){
+          bubble.innerHTML = dotsHTML(chatStr('thinking'));
+        } else if(ev === 'delta'){
+          // The draft isn't shown (it still goes through post-processing), only a
+          // "writing…" indicator.
+          if(!started) bubble.innerHTML = dotsHTML(chatStr('writing'));
+          started = true;
+        } else if(ev === 'done'){
+          return {done: data};
+        } else if(ev === 'error'){
+          return {error: data.detail || chatStr('unknown')};
+        }
+      }
+    }
+  } catch(_){}
+  return started ? {started: true} : {};
+}
+
+async function tryRecoverReply(sentText, thinking, baselineTs){
+  for(let i = 0; i < 6; i++){
+    await new Promise(r => setTimeout(r, 4000));
+    try{
+      const res = await fetch('/history?limit=2');
+      const hist = await res.json();
+      // Recovered only if the pair [our message, reply] comes after the
+      // baseline, so sending the same text twice can't bring back an older reply.
+      if(hist.length >= 2
+         && hist[0].role === 'user' && hist[0].content === sentText
+         && hist[1].role === 'assistant'
+         && (hist[1].ts || 0) > baselineTs){
+        thinking.remove();
+        renderMessage('assistant', hist[1].content, {withContinue: true, sprite: hist[1].sprite, sprites: hist[1].sprites,
+                                                     canRegenerate: true});
+        return true;
+      }
+    }catch(_){ /* the server may still be busy; retrying */ }
+  }
+  return false;
+}
+
+function formatPinDate(ts){
+  if(!ts) return '';
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString('en-US', {day:'2-digit', month:'2-digit', year:'numeric'});
+}
+
+async function openPinModal(){
+  await renderPinsList();
+  document.getElementById('pinModal').style.display = 'flex';
+}
+function closePinModal(){ document.getElementById('pinModal').style.display = 'none'; }
+
+async function renderPinsList(){
+  const res = await fetch('/pins');
+  const data = await res.json();
+  const container = document.getElementById('pinsList');
+  container.innerHTML = '';
+  data.pins.forEach(pin => {
+    const div = document.createElement('div');
+    div.className = 'pin-item';
+    div.innerHTML = `
+      <div class="pin-date">${formatPinDate(pin.ts)}</div>
+      <textarea id="pin-edit-${pin.id}">${escapeHTML(pin.content)}</textarea>
+      <div class="pin-actions">
+        <button class="pin-save" onclick="savePinEdit(${pin.id})">Save</button>
+        <button class="pin-delete" onclick="deletePinItem(${pin.id})">Delete</button>
+      </div>
+    `;
+    container.appendChild(div);
+  });
+}
+
+async function savePinEdit(pinId){
+  const content = document.getElementById(`pin-edit-${pinId}`).value.trim();
+  if(!content) return;
+  await fetch(`/pins/${pinId}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content})
+  });
+  await renderPinsList();
+}
+
+async function deletePinItem(pinId){
+  await fetch(`/pins/${pinId}`, {method: 'DELETE'});
+  await renderPinsList();
+}
+
+async function savePin(){
+  const text = document.getElementById('pinText').value.trim();
+  if(!text) return;
+  await fetch('/pins', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content: text, priority: 0})
+  });
+  document.getElementById('pinText').value = '';
+  await renderPinsList();
+}
+
+// ── Settings / instructions ──
+// ── Memory panel (pins + the real summaries injected into the context) ──
+async function openMemoryModal(){
+  const res = await fetch('/summaries');
+  const data = await res.json();
+
+  const levelLabel = {off:'No auto-summary', low:'Low', medium:'Medium', high:'High'}[data.level] || data.level;
+  const statusEl = document.getElementById('memoryStatus');
+  if(data.threshold){
+    statusEl.textContent = `Level: ${levelLabel} — ${data.unsummarized_count}/${data.threshold} messages until next auto-summary.`;
+  } else {
+    statusEl.textContent = `Level: ${levelLabel} — auto-summary is off. Use "Re-Summarize now" in AI Settings to force one.`;
+  }
+
+  const list = document.getElementById('summariesList');
+  list.innerHTML = '';
+  if(data.summaries.length === 0){
+    list.innerHTML = '<div style="font-size:13px;color:#777">No summaries yet — they appear once enough messages build up.</div>';
+  } else {
+    data.summaries.forEach(s => {
+      const div = document.createElement('div');
+      div.className = 'summary-item';
+      const date = s.ts ? new Date(s.ts * 1000).toLocaleString('en-US') : '';
+      div.innerHTML = `
+        <div class="summary-range">Messages #${s.range_start}–#${s.range_end} · ${date}</div>
+        <div class="summary-text">${escapeHTML(s.content)}</div>
+      `;
+      list.appendChild(div);
+    });
+  }
+
+  document.getElementById('memoryModal').style.display = 'flex';
+}
+function closeMemoryModal(){ document.getElementById('memoryModal').style.display = 'none'; }
+
+// ── Language ──
+// Chat status messages, in the UI language (base code: en/es/it/ja/ko/zh).
+const CHAT_STRINGS = {
+  'en': {
+    thinking: '… she\'s thinking',
+    writing: '… she\'s writing',
+    unknown: 'Unknown server error',
+    reconnecting: '⏳ Connection interrupted, recovering the reply...',
+    noServer: '⚠️ No reply from the server. Is Ame running (start.bat / the launcher)? If you just sent it, refresh: it may have been saved.',
+  },
+  'es': {
+    thinking: '… está pensando',
+    writing: '… está escribiendo',
+    unknown: 'Error desconocido del servidor',
+    reconnecting: '⏳ Conexión interrumpida, recuperando la respuesta...',
+    noServer: '⚠️ No hay respuesta del servidor. ¿Está encendida Ame (start.bat / el lanzador)? Si acabas de enviar, refresca: puede estar guardada.',
+  },
+  'it': {
+    thinking: '… sta pensando',
+    writing: '… sta scrivendo',
+    unknown: 'Errore sconosciuto del server',
+    reconnecting: '⏳ Connessione interrotta, recupero la risposta...',
+    noServer: '⚠️ Nessuna risposta dal server. Ame è accesa (start.bat / il launcher)? Se hai appena inviato, ricarica: potrebbe essere stata salvata.',
+  },
+  'ja': {
+    thinking: '… 考え中', writing: '… 入力中',
+    unknown: '不明なサーバーエラー',
+    reconnecting: '⏳ 接続が途切れました。返信を復元しています...',
+    noServer: '⚠️ サーバーから応答がありません。Ame は起動していますか（start.bat / ランチャー）？送信直後なら再読み込みしてください：保存されている可能性があります。',
+  },
+  'ko': {
+    thinking: '… 생각 중', writing: '… 입력 중',
+    unknown: '알 수 없는 서버 오류',
+    reconnecting: '⏳ 연결이 끊겼습니다. 답장을 복구하는 중...',
+    noServer: '⚠️ 서버 응답이 없습니다. Ame가 실행 중인가요 (start.bat / 런처)? 방금 보냈다면 새로고침하세요: 저장되었을 수 있습니다.',
+  },
+  'zh': {
+    thinking: '… 正在思考', writing: '… 正在输入',
+    unknown: '未知的服务器错误',
+    reconnecting: '⏳ 连接中断，正在恢复回复...',
+    noServer: '⚠️ 服务器没有响应。Ame 是否在运行（start.bat / 启动器）？如果刚刚发送，请刷新：回复可能已经保存。',
+  },
+};
+let UI_LANG = 'en';
+async function refreshUiLang(){
+  try {
+    const s = await (await fetch('/settings')).json();
+    UI_LANG = (s.language || 'en').split('-')[0];
+  } catch(_){}
+}
+function chatStr(key){
+  return (CHAT_STRINGS[UI_LANG] || CHAT_STRINGS['en'])[key] || CHAT_STRINGS['en'][key];
+}
+
+const RECAL_STRINGS = {
+  'en': {
+    confirm: "Recalibrate\n\nSummarize what's pending and start the literal context fresh.\nNothing is deleted: history, memories and summaries are all kept.\n\nUse it after changing the prompt or to start a clean scene. Continue?",
+    working: '🎚️ Recalibrating...',
+    done: (n, s) => `🎚️ Recalibrated — ${n} messages out of the literal context` + (s ? ', summary saved' : ''),
+    fail: '⚠️ Could not recalibrate',
+  },
+  'es': {
+    confirm: "Recalibrar\n\nResume lo pendiente y arranca el contexto literal desde cero.\nNada se borra: el historial, los recuerdos y los resúmenes se conservan.\n\nÚsalo tras cambiar el prompt o para empezar una escena limpia. ¿Continuar?",
+    working: '🎚️ Recalibrando...',
+    done: (n, s) => `🎚️ Recalibrado — ${n} mensajes fuera del contexto literal` + (s ? ', resumen guardado' : ''),
+    fail: '⚠️ No se pudo recalibrar',
+  },
+  'ja': {
+    confirm: "リキャリブレート\n\n保留中の内容を要約し、直近の文脈をリセットします。\n削除はされません：履歴・記憶・要約はすべて保持されます。\n\nプロンプト変更後や、新しい場面を始めるときに使います。続けますか？",
+    working: '🎚️ リキャリブレート中...',
+    done: (n, s) => `🎚️ リキャリブレート完了 — ${n}件のメッセージが直近文脈から外れました` + (s ? '、要約を保存' : ''),
+    fail: '⚠️ リキャリブレートできませんでした',
+  },
+  'ko': {
+    confirm: "리캘리브레이트\n\n대기 중인 내용을 요약하고 직전 문맥을 새로 시작합니다.\n삭제되는 것은 없습니다: 기록, 기억, 요약이 모두 유지됩니다.\n\n프롬프트를 바꾼 뒤나 새 장면을 시작할 때 사용하세요. 계속할까요?",
+    working: '🎚️ 리캘리브레이트 중...',
+    done: (n, s) => `🎚️ 리캘리브레이트 완료 — 메시지 ${n}개가 직전 문맥에서 제외됨` + (s ? ', 요약 저장됨' : ''),
+    fail: '⚠️ 리캘리브레이트할 수 없습니다',
+  },
+  'zh': {
+    confirm: "重新校准\n\n总结待处理内容并重置直接上下文。\n不会删除任何内容：历史、记忆和摘要都会保留。\n\n更改提示词后或想开启新场景时使用。是否继续？",
+    working: '🎚️ 重新校准中...',
+    done: (n, s) => `🎚️ 已重新校准 — ${n} 条消息移出直接上下文` + (s ? '，摘要已保存' : ''),
+    fail: '⚠️ 无法重新校准',
+  },
+  'it': {
+    confirm: "Ricalibra\n\nRiassume ciò che è in sospeso e riparte da zero con il contesto letterale.\nNon si cancella nulla: cronologia, ricordi e riassunti restano tutti conservati.\n\nUsalo dopo aver modificato il prompt o per iniziare una scena pulita. Continuare?",
+    working: '🎚️ Ricalibrando...',
+    done: (n, s) => `🎚️ Ricalibrato — ${n} messaggi fuori dal contesto letterale` + (s ? ', riassunto salvato' : ''),
+    fail: '⚠️ Impossibile ricalibrare',
+  },
+};
+
+const LANGUAGE_LABELS = {
+  'en': 'English',
+  'es-mx': 'Español Latino (México)',
+  'es-pe': 'Español Latino (Perú)',
+  'es-ar': 'Español Latino (Argentina)',
+  'es-es': 'Español (España)',
+  'it': 'Italiano',
+  'ja': '日本語 (Japanese)',
+  'ko': '한국어 (Korean)',
+  'zh': '中文 (Chinese)',
+};
+
+// ── Welcome wizard (onboarding) ──
+// Step 1 (language) needs no translation: each option is already shown in
+// its own native language. Step 2 (name/gender/bio) is translated
+// according to what was picked in step 1.
+const OB_STRINGS = {
+  'en': {
+    title2: "Tell Ame about you", sub2: "This helps her respond to you naturally from the start.",
+    nameLabel: "Your name", genderLabel: "Your gender",
+    male: "Male", female: "Female", other: "Other",
+    bioLabel: "A short bio (optional)", bioPlaceholder: "e.g. likes digital art, into anime",
+    nextBtn: "Next",
+    title3: "AI engine", sub3: "Pick which AI powers Ame, and paste its API key.",
+    modelLabel: "Model", apiKeyLabel: "API key",
+    visionYes: "🖼️ This model can see images you send.",
+    visionNo: "This model/engine cannot see images — text only.",
+    visionUnknown: "Custom model — image support unknown, check its docs.",
+    reasoningEffortLabel: "Reasoning effort", thinkingLabel: "Enable extended thinking (slower, more thorough)",
+    finishBtn: "Start",
+  },
+  'es-mx': {
+    title2: "Cuéntale a Ame sobre ti", sub2: "Esto le ayuda a responderte de forma natural desde el principio.",
+    nameLabel: "Tu nombre", genderLabel: "Tu género",
+    male: "Hombre", female: "Mujer", other: "Otro",
+    bioLabel: "Una bio corta (opcional)", bioPlaceholder: "ej. estudia de noche, le gustan los videojuegos",
+    nextBtn: "Siguiente",
+    title3: "Motor de IA", sub3: "Elige qué IA usa Ame y pega su API key.",
+    modelLabel: "Modelo", apiKeyLabel: "API key",
+    visionYes: "🖼️ Este modelo puede ver las imágenes que le mandes.",
+    visionNo: "Este modelo/motor no puede ver imágenes — solo texto.",
+    visionUnknown: "Modelo personalizado — no sabemos si reconoce imágenes, revisa su documentación.",
+    reasoningEffortLabel: "Nivel de razonamiento", thinkingLabel: "Activar pensamiento extendido (más lento, más detallado)",
+    finishBtn: "Empezar",
+  },
+  'es-pe': {
+    title2: "Cuéntale a Ame sobre ti", sub2: "Esto le ayuda a responderte de forma natural desde el inicio.",
+    nameLabel: "Tu nombre", genderLabel: "Tu género",
+    male: "Hombre", female: "Mujer", other: "Otro",
+    bioLabel: "Una bio corta (opcional)", bioPlaceholder: "ej. estudia de noche, le gustan los videojuegos",
+    nextBtn: "Siguiente",
+    title3: "Motor de IA", sub3: "Elige qué IA usa Ame y pega su API key.",
+    modelLabel: "Modelo", apiKeyLabel: "API key",
+    visionYes: "🖼️ Este modelo puede ver las imágenes que le mandes.",
+    visionNo: "Este modelo/motor no puede ver imágenes — solo texto.",
+    visionUnknown: "Modelo personalizado — no sabemos si reconoce imágenes, revisa su documentación.",
+    reasoningEffortLabel: "Nivel de razonamiento", thinkingLabel: "Activar pensamiento extendido (más lento, más detallado)",
+    finishBtn: "Empezar",
+  },
+  'es-ar': {
+    title2: "Contale a Ame sobre vos", sub2: "Esto le ayuda a responderte de forma natural desde el principio.",
+    nameLabel: "Tu nombre", genderLabel: "Tu género",
+    male: "Hombre", female: "Mujer", other: "Otro",
+    bioLabel: "Una bio corta (opcional)", bioPlaceholder: "ej. estudia de noche, le gustan los videojuegos",
+    nextBtn: "Siguiente",
+    title3: "Motor de IA", sub3: "Elegí qué IA usa Ame, y pegá su API key.",
+    modelLabel: "Modelo", apiKeyLabel: "API key",
+    visionYes: "🖼️ Este modelo puede ver las imágenes que le mandés.",
+    visionNo: "Este modelo/motor no puede ver imágenes — solo texto.",
+    visionUnknown: "Modelo personalizado — no sabemos si reconoce imágenes, revisá su documentación.",
+    reasoningEffortLabel: "Nivel de razonamiento", thinkingLabel: "Activar pensamiento extendido (más lento, más detallado)",
+    finishBtn: "Empezar",
+  },
+  'es-es': {
+    title2: "Cuéntale a Ame sobre ti", sub2: "Esto le ayuda a responderte de forma natural desde el principio.",
+    nameLabel: "Tu nombre", genderLabel: "Tu género",
+    male: "Hombre", female: "Mujer", other: "Otro",
+    bioLabel: "Una bio corta (opcional)", bioPlaceholder: "ej. estudia de noche, le gustan los videojuegos",
+    nextBtn: "Siguiente",
+    title3: "Motor de IA", sub3: "Elige qué IA usa Ame, y pega su API key.",
+    modelLabel: "Modelo", apiKeyLabel: "API key",
+    visionYes: "🖼️ Este modelo puede ver las imágenes que le envíes.",
+    visionNo: "Este modelo/motor no puede ver imágenes — solo texto.",
+    visionUnknown: "Modelo personalizado — no sabemos si reconoce imágenes, revisa su documentación.",
+    reasoningEffortLabel: "Nivel de razonamiento", thinkingLabel: "Activar pensamiento extendido (más lento, más detallado)",
+    finishBtn: "Empezar",
+  },
+  'it': {
+    title2: "Parla ad Ame di te", sub2: "Questo la aiuta a risponderti in modo naturale fin dall'inizio.",
+    nameLabel: "Il tuo nome", genderLabel: "Il tuo genere",
+    male: "Uomo", female: "Donna", other: "Altro",
+    bioLabel: "Una breve bio (opzionale)", bioPlaceholder: "es. le piace l'arte digitale, gli anime",
+    nextBtn: "Avanti",
+    title3: "Motore IA", sub3: "Scegli quale IA usa Ame, e incolla la sua API key.",
+    modelLabel: "Modello", apiKeyLabel: "API key",
+    visionYes: "🖼️ Questo modello può vedere le immagini che gli invii.",
+    visionNo: "Questo modello/motore non può vedere immagini — solo testo.",
+    visionUnknown: "Modello personalizzato — supporto immagini sconosciuto, controlla la sua documentazione.",
+    reasoningEffortLabel: "Livello di ragionamento", thinkingLabel: "Attiva pensiero esteso (più lento, più approfondito)",
+    finishBtn: "Inizia",
+  },
+  'ja': {
+    title2: "アメにあなたのことを教えてね", sub2: "最初から自然にあなたに合わせて話せるようになるよ。",
+    nameLabel: "あなたの名前", genderLabel: "あなたの性別",
+    male: "男性", female: "女性", other: "その他",
+    bioLabel: "簡単な自己紹介（任意）", bioPlaceholder: "例：デジタルアートが好き、アニメ好き",
+    nextBtn: "次へ",
+    title3: "AIエンジン", sub3: "アメを動かすAIを選んで、APIキーを貼り付けてね。",
+    modelLabel: "モデル", apiKeyLabel: "APIキー",
+    visionYes: "🖼️ このモデルは送った画像を見ることができるよ。",
+    visionNo: "このモデル／エンジンは画像を認識できません（テキストのみ）。",
+    visionUnknown: "カスタムモデル — 画像に対応しているか不明です。ドキュメントを確認してね。",
+    reasoningEffortLabel: "推論の強さ", thinkingLabel: "拡張思考を有効にする（遅いけどより丁寧）",
+    finishBtn: "はじめる",
+  },
+  'ko': {
+    title2: "아메에게 당신에 대해 알려주세요", sub2: "처음부터 자연스럽게 반응할 수 있도록 도와줘요.",
+    nameLabel: "이름", genderLabel: "성별",
+    male: "남성", female: "여성", other: "기타",
+    bioLabel: "짧은 소개 (선택)", bioPlaceholder: "예: 디지털 아트, 애니메이션을 좋아함",
+    nextBtn: "다음",
+    title3: "AI 엔진", sub3: "아메를 움직일 AI를 고르고 API 키를 붙여넣어 주세요.",
+    modelLabel: "모델", apiKeyLabel: "API 키",
+    visionYes: "🖼️ 이 모델은 보낸 이미지를 볼 수 있어요.",
+    visionNo: "이 모델/엔진은 이미지를 인식할 수 없어요 — 텍스트만 가능.",
+    visionUnknown: "커스텀 모델 — 이미지 인식 여부를 알 수 없어요. 문서를 확인해 주세요.",
+    reasoningEffortLabel: "추론 강도", thinkingLabel: "확장 사고 활성화 (느리지만 더 꼼꼼함)",
+    finishBtn: "시작하기",
+  },
+  'zh': {
+    title2: "告诉阿梅一些关于你的事吧", sub2: "这样她从一开始就能更自然地回应你。",
+    nameLabel: "你的名字", genderLabel: "你的性别",
+    male: "男", female: "女", other: "其他",
+    bioLabel: "简短的自我介绍（可选）", bioPlaceholder: "例如：喜欢数字绘画、喜欢动漫",
+    nextBtn: "下一步",
+    title3: "AI 引擎", sub3: "选择驱动阿梅的 AI，并粘贴其 API 密钥。",
+    modelLabel: "模型", apiKeyLabel: "API 密钥",
+    visionYes: "🖼️ 这个模型可以识别你发送的图片。",
+    visionNo: "这个模型/引擎无法识别图片 — 仅支持文本。",
+    visionUnknown: "自定义模型 — 是否支持图片未知，请查看其文档。",
+    reasoningEffortLabel: "推理强度", thinkingLabel: "启用扩展思考（更慢，但更周全）",
+    finishBtn: "开始",
+  },
+};
+
+// Models per engine and which ones accept images (see app_config.py).
+// This greys out the vision notice in step 3.
+const PROVIDER_MODELS = {
+  grok: [
+    {value: "grok-4.3-latest", vision: true},
+    {value: "grok-4.5", vision: false},
+    {value: "grok-4", vision: false},
+    {value: "grok-4-fast", vision: false},
+    {value: "grok-3", vision: false},
+    {value: "grok-3-mini", vision: false},
+  ],
+  qwen: [
+    {value: "qwen-plus", vision: false},
+    {value: "qwen-turbo", vision: false},
+    {value: "qwen-max", vision: false},
+    {value: "qwen-vl-max", vision: true},
+    {value: "qwen-vl-plus", vision: true},
+    {value: "qwen3-vl-plus", vision: true},
+    {value: "qwen3-vl-flash", vision: true},
+  ],
+  deepseek: [
+    {value: "deepseek-v4-pro", vision: false},
+    {value: "deepseek-v4-flash", vision: false},
+  ],
+  gpt: [
+    {value: "gpt-5.6-sol", vision: true},
+    {value: "gpt-5.6-terra", vision: true},
+    {value: "gpt-5.6-luna", vision: true},
+  ],
+};
+
+const PROVIDER_KEY_URLS = {
+  grok: "https://console.x.ai",
+  qwen: "https://dashscope.console.aliyun.com",
+  deepseek: "https://platform.deepseek.com",
+  gpt: "https://platform.openai.com/api-keys",
+};
+
+const PROVIDER_DISPLAY_NAMES = { grok: "Grok", qwen: "Qwen", deepseek: "DeepSeek", gpt: "GPT" };
+
+// The two engines with graded levels don't support the same range:
+// GPT-5.6 adds xhigh/max above what Grok offers. It's built dynamically
+// for the active provider so a level that engine doesn't understand is
+// never sent.
+const REASONING_EFFORT_OPTIONS = {
+  grok: [["none","None (cheapest)"],["low","Low"],["medium","Medium"],["high","High"]],
+  gpt: [["none","None (cheapest)"],["low","Low"],["medium","Medium"],["high","High"],["xhigh","X-High"],["max","Max"]],
+};
+
+function populateReasoningEffortSelect(selectEl, provider){
+  const options = REASONING_EFFORT_OPTIONS[provider] || REASONING_EFFORT_OPTIONS.grok;
+  const prevValue = selectEl.value;
+  selectEl.innerHTML = '';
+  options.forEach(([value, label]) => {
+    const opt = document.createElement('option');
+    opt.value = value; opt.textContent = label;
+    selectEl.appendChild(opt);
+  });
+  if (options.some(([v]) => v === prevValue)) selectEl.value = prevValue;
+}
+
+let obSelectedLanguage = 'en';
+let obSelectedProvider = 'grok';
+
+function applyObTranslations(code){
+  const t = OB_STRINGS[code] || OB_STRINGS['en'];
+  document.getElementById('obStep2Title').textContent = t.title2;
+  document.getElementById('obStep2Sub').textContent = t.sub2;
+  document.getElementById('obNameLabel').textContent = t.nameLabel;
+  document.getElementById('obGenderLabel').textContent = t.genderLabel;
+  document.getElementById('obGenderMale').textContent = t.male;
+  document.getElementById('obGenderFemale').textContent = t.female;
+  document.getElementById('obGenderOther').textContent = t.other;
+  document.getElementById('obBioLabel').textContent = t.bioLabel;
+  document.getElementById('obUserBio').placeholder = t.bioPlaceholder;
+  document.getElementById('obNextBtn').textContent = t.nextBtn;
+  document.getElementById('obStep3Title').textContent = t.title3;
+  document.getElementById('obStep3Sub').textContent = t.sub3;
+  document.getElementById('obModelLabel').textContent = t.modelLabel;
+  document.getElementById('obReasoningEffortLabel').textContent = t.reasoningEffortLabel;
+  document.getElementById('obThinkingLabel').textContent = t.thinkingLabel;
+  document.getElementById('obApiKeyLabel').textContent = t.apiKeyLabel;
+  document.getElementById('obFinishBtn').textContent = t.finishBtn;
+  updateObVisionNote();
+}
+
+function goToObStep3(){
+  document.getElementById('obStep2').classList.remove('active');
+  document.getElementById('obStep3').classList.add('active');
+  selectObProvider(obSelectedProvider);
+}
+
+function selectObProvider(provider){
+  obSelectedProvider = provider;
+  document.querySelectorAll('.ob-provider-tab').forEach(el => {
+    el.classList.toggle('active', el.dataset.provider === provider);
+  });
+
+  const modelInput = document.getElementById('obModelSelect');
+  const datalist = document.getElementById('obModelDatalist');
+  datalist.innerHTML = '';
+  PROVIDER_MODELS[provider].forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m.value;
+    datalist.appendChild(opt);
+  });
+  modelInput.value = PROVIDER_MODELS[provider][0].value;
+  modelInput.oninput = updateObVisionNote;
+  modelInput.onchange = updateObVisionNote;
+
+  document.getElementById('obApiKey').value = '';
+  document.getElementById('obBaseUrl').value = '';
+  document.getElementById('obApiKeyHint').textContent =
+    `Get your ${PROVIDER_DISPLAY_NAMES[provider]} key at ${PROVIDER_KEY_URLS[provider]}`;
+
+  // Grok and GPT have graded levels (none/low/medium/high[/xhigh/max in
+  // GPT]); Qwen and DeepSeek only have an enable_thinking boolean — each
+  // one shows the control that fits it, never both.
+  const isGraduated = provider === 'grok' || provider === 'gpt';
+  document.getElementById('obReasoningEffortWrap').style.display = isGraduated ? 'block' : 'none';
+  document.getElementById('obThinkingWrap').style.display = isGraduated ? 'none' : 'block';
+  if (isGraduated) populateReasoningEffortSelect(document.getElementById('obReasoningEffort'), provider);
+  // Off by default: thinking makes replies much slower.
+  document.getElementById('obThinkingToggle').checked = false;
+
+  updateObVisionNote();
+}
+
+function updateObVisionNote(){
+  const t = OB_STRINGS[obSelectedLanguage] || OB_STRINGS['en'];
+  const modelInput = document.getElementById('obModelSelect');
+  const models = PROVIDER_MODELS[obSelectedProvider] || [];
+  const chosen = models.find(m => m.value === modelInput.value);
+  const note = document.getElementById('obVisionNote');
+  if (!modelInput.value.trim() || !chosen) {
+    // A custom model name not in the list: image support is unknown, so the
+    // notice neither claims nor denies it.
+    note.textContent = t.visionUnknown || 'Custom model — image support unknown, check its docs.';
+    note.className = 'ob-vision-note no';
+    return;
+  }
+  if (chosen && chosen.vision) {
+    note.textContent = t.visionYes;
+    note.className = 'ob-vision-note yes';
+  } else {
+    note.textContent = t.visionNo;
+    note.className = 'ob-vision-note no';
+  }
+}
+
+function openOnboarding(){
+  const container = document.getElementById('obLanguageOptions');
+  container.innerHTML = '';
+  Object.entries(LANGUAGE_LABELS).forEach(([code, label]) => {
+    const div = document.createElement('div');
+    div.className = 'lang-option';
+    div.textContent = label;
+    div.onclick = () => selectObLanguage(code);
+    container.appendChild(div);
+  });
+  document.getElementById('obStep1').classList.add('active');
+  document.getElementById('obStep2').classList.remove('active');
+  document.getElementById('obStep3').classList.remove('active');
+  document.getElementById('onboardingModal').style.display = 'flex';
+}
+
+function selectObLanguage(code){
+  obSelectedLanguage = code;
+  applyObTranslations(code);
+  document.getElementById('obStep1').classList.remove('active');
+  document.getElementById('obStep2').classList.add('active');
+}
+
+async function finishOnboarding(){
+  const name = document.getElementById('obUserName').value.trim();
+  const apiKey = document.getElementById('obApiKey').value.trim();
+  const model = document.getElementById('obModelSelect').value;
+  const btn = document.getElementById('obFinishBtn');
+  btn.disabled = true;
+
+  const payload = {
+    language: obSelectedLanguage,
+    user_name: name,
+    user_gender: document.getElementById('obUserGender').value,
+    user_bio: document.getElementById('obUserBio').value.trim(),
+    llm_provider: obSelectedProvider,
+  };
+  // Only the key/model of the chosen engine is sent — the others keep their
+  // default value (they can be set later in Settings if the user switches
+  // engines further on).
+  payload[`${obSelectedProvider}_api_key`] = apiKey;
+  payload[`${obSelectedProvider}_base_url`] = document.getElementById('obBaseUrl').value.trim();
+  payload[`${obSelectedProvider}_model`] = model;
+  if (obSelectedProvider === 'grok' || obSelectedProvider === 'gpt') {
+    payload.reasoning_effort = document.getElementById('obReasoningEffort').value;
+  } else {
+    payload[`${obSelectedProvider}_thinking`] = document.getElementById('obThinkingToggle').checked;
+  }
+
+  try {
+    await fetch('/onboarding', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    refreshUiLang();
+  } finally {
+    btn.disabled = false;
+  }
+  document.getElementById('onboardingModal').style.display = 'none';
+  bootApp();
+}
+
+async function openLanguageModal(){
+  const res = await fetch('/settings');
+  const s = await res.json();
+  const current = s.language || 'en';
+
+  const container = document.getElementById('languageOptions');
+  container.innerHTML = '';
+  Object.entries(LANGUAGE_LABELS).forEach(([code, label]) => {
+    const div = document.createElement('div');
+    div.className = 'lang-option' + (code === current ? ' active' : '');
+    div.textContent = label;
+    div.onclick = () => selectLanguage(code);
+    container.appendChild(div);
+  });
+
+  document.getElementById('languageModal').style.display = 'flex';
+}
+function closeLanguageModal(){ document.getElementById('languageModal').style.display = 'none'; }
+
+async function selectLanguage(code){
+  const res = await fetch('/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({language: code})
+  });
+  UI_LANG = code.split('-')[0];
+  // Before the first message, the opening scene follows the language.
+  try { if((await res.json()).opening_swapped) loadHistory(); } catch(_){}
+  showToast(`🌐 ${LANGUAGE_LABELS[code]}`);
+  closeLanguageModal();
+}
+
+let stCachedSettings = {};
+
+async function openSettingsModal(){
+  const res = await fetch('/settings');
+  const s = await res.json();
+  stCachedSettings = s;
+  document.getElementById('summaryLevel').value = s.summary_level || 'low';
+  document.getElementById('reduceRepetition').checked = !!s.reduce_repetition;
+  document.getElementById('dontRefuse').checked = !!s.dont_refuse;
+  document.getElementById('polishSpeech').checked = s.polish_speech === undefined ? true : !!s.polish_speech;
+  document.getElementById('customInstruction').value = s.custom_instruction || '';
+  document.getElementById('spriteScaleSelect').value = String(s.sprite_scale || 300);
+  document.getElementById('stReasoningEffort').value = s.reasoning_effort || 'none';
+  document.getElementById('resummarizeStatus').textContent = '';
+  selectStProvider(s.llm_provider || 'grok');
+  document.getElementById('settingsModal').style.display = 'flex';
+}
+function closeSettingsModal(){ document.getElementById('settingsModal').style.display = 'none'; }
+
+function selectStProvider(provider){
+  document.querySelectorAll('#stProviderTabs .ob-provider-tab').forEach(el => {
+    el.classList.toggle('active', el.dataset.provider === provider);
+  });
+
+  const modelInput = document.getElementById('stModelSelect');
+  const datalist = document.getElementById('stModelDatalist');
+  datalist.innerHTML = '';
+  const savedModel = stCachedSettings[`${provider}_model`] || '';
+  PROVIDER_MODELS[provider].forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m.value;
+    datalist.appendChild(opt);
+  });
+  modelInput.value = savedModel || PROVIDER_MODELS[provider][0].value;
+  modelInput.oninput = updateStVisionNote;
+  modelInput.onchange = updateStVisionNote;
+
+  document.getElementById('stApiKey').value = stCachedSettings[`${provider}_api_key`] || '';
+  document.getElementById('stBaseUrl').value = stCachedSettings[`${provider}_base_url`] || '';
+  document.getElementById('stApiKeyHint').textContent =
+    `Get your ${PROVIDER_DISPLAY_NAMES[provider]} key at ${PROVIDER_KEY_URLS[provider]}`;
+
+  // Grok and GPT have graded levels; Qwen/DeepSeek only an enable_thinking
+  // boolean — the same criterion as in onboarding.
+  const isGraduated = provider === 'grok' || provider === 'gpt';
+  document.getElementById('stReasoningEffortWrap').style.display = isGraduated ? 'block' : 'none';
+  document.getElementById('stThinkingWrap').style.display = isGraduated ? 'none' : 'block';
+  if (isGraduated) populateReasoningEffortSelect(document.getElementById('stReasoningEffort'), provider);
+  document.getElementById('stThinkingToggle').checked = !!stCachedSettings[`${provider}_thinking`];
+
+  updateStVisionNote();
+}
+
+function updateStVisionNote(){
+  const provider = document.querySelector('#stProviderTabs .ob-provider-tab.active')?.dataset.provider || 'grok';
+  const modelInput = document.getElementById('stModelSelect');
+  const models = PROVIDER_MODELS[provider] || [];
+  const chosen = models.find(m => m.value === modelInput.value);
+  const note = document.getElementById('stVisionNote');
+  if (!modelInput.value.trim() || !chosen) {
+    note.textContent = 'Custom model — image support unknown, check its docs.';
+    note.className = 'ob-vision-note no';
+  } else if (chosen.vision) {
+    note.textContent = '🖼️ This model can see images you send.';
+    note.className = 'ob-vision-note yes';
+  } else {
+    note.textContent = 'This model/engine cannot see images — text only.';
+    note.className = 'ob-vision-note no';
+  }
+}
+
+async function saveSettings(){
+  const activeProvider = document.querySelector('#stProviderTabs .ob-provider-tab.active')?.dataset.provider || 'grok';
+  const payload = {
+    summary_level: document.getElementById('summaryLevel').value,
+    reduce_repetition: document.getElementById('reduceRepetition').checked,
+    dont_refuse: document.getElementById('dontRefuse').checked,
+    polish_speech: document.getElementById('polishSpeech').checked,
+    custom_instruction: document.getElementById('customInstruction').value.trim(),
+    sprite_scale: parseInt(document.getElementById('spriteScaleSelect').value, 10),
+    llm_provider: activeProvider,
+  };
+  // Only the key/model/reasoning config of the engine active in the tabs
+  // right now is sent — the other engines aren't touched and keep what
+  // they already had stored in the database.
+  payload[`${activeProvider}_api_key`] = document.getElementById('stApiKey').value.trim();
+  payload[`${activeProvider}_base_url`] = document.getElementById('stBaseUrl').value.trim();
+  payload[`${activeProvider}_model`] = document.getElementById('stModelSelect').value;
+  if (activeProvider === 'grok' || activeProvider === 'gpt') {
+    payload.reasoning_effort = document.getElementById('stReasoningEffort').value;
+  } else {
+    payload[`${activeProvider}_thinking`] = document.getElementById('stThinkingToggle').checked;
+  }
+
+  await fetch('/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  spriteScale = payload.sprite_scale;
+  applySpriteScale();
+  closeSettingsModal();
+}
+
+async function resummarizeNow(){
+  const status = document.getElementById('resummarizeStatus');
+  status.textContent = 'Summarizing...';
+  const res = await fetch('/resummarize', {method: 'POST'});
+  const data = await res.json();
+  status.textContent = data.ok ? '✅ Summary updated' : (data.message || 'Nothing new to summarize');
+}
+
+// ── Profile and avatars ──
+async function openProfileModal(){
+  const res = await fetch('/profile');
+  const p = await res.json();
+  document.getElementById('userName').value = p.user_name || '';
+  document.getElementById('userGender').value = p.user_gender || 'other';
+  document.getElementById('userBio').value = p.user_bio || '';
+  document.getElementById('userLikes').value = p.user_likes || '';
+  document.getElementById('userDislikes').value = p.user_dislikes || '';
+  // The birthday is stored as "MM-DD". <input type=date> needs a year, so a
+  // filler one (2000, a leap year) is used on screen only.
+  document.getElementById('userBirthday').value = p.user_birthday ? ('2000-' + p.user_birthday) : '';
+  document.getElementById('userAvatarPreview').src = p.user_avatar || 'https://api.dicebear.com/7.x/thumbs/svg?seed=user';
+  document.getElementById('ameAvatarPreview').src = p.ame_avatar || '/images/ame001.png';
+  document.getElementById('profileModal').style.display = 'flex';
+}
+function closeProfileModal(){ document.getElementById('profileModal').style.display = 'none'; }
+
+function handleAvatarUpload(input, who){
+  const file = input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const dataUrl = e.target.result;
+    document.getElementById(who === 'user' ? 'userAvatarPreview' : 'ameAvatarPreview').src = dataUrl;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function saveProfile(){
+  const bday = document.getElementById('userBirthday').value;   // "YYYY-MM-DD" o ""
+  const payload = {
+    user_name: document.getElementById('userName').value.trim(),
+    user_gender: document.getElementById('userGender').value,
+    user_bio: document.getElementById('userBio').value.trim(),
+    user_likes: document.getElementById('userLikes').value.trim(),
+    user_dislikes: document.getElementById('userDislikes').value.trim(),
+    user_birthday: bday ? bday.slice(5) : '',   // "MM-DD" only, the year is dropped
+    user_avatar: document.getElementById('userAvatarPreview').src,
+    ame_avatar: document.getElementById('ameAvatarPreview').src,
+  };
+  await fetch('/profile', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  document.getElementById('headerAvatar').src = payload.ame_avatar;
+  closeProfileModal();
+}
+
+async function loadAvatarsIntoHeader(){
+  const res = await fetch('/profile');
+  const p = await res.json();
+  if(p.ame_avatar) document.getElementById('headerAvatar').src = p.ame_avatar;
+}
+
+// ── Opening scene ──
+async function checkOpeningScenario(){
+  const res = await fetch('/opening');
+  const data = await res.json();
+  if(data.scenario){
+    renderMessage('assistant', data.scenario, {withContinue: true});
+  }
+}
+
+function bootApp(){
+  loadAvatarsIntoHeader();
+  loadSpriteScale().then(() => loadHistory().then(checkOpeningScenario));
+}
+
+async function checkOnboarding(){
+  refreshUiLang();
+  try {
+    const res = await fetch('/onboarding_status');
+    const data = await res.json();
+    if (data.done) {
+      bootApp();
+    } else {
+      openOnboarding();
+    }
+  } catch (e) {
+    // If the endpoint fails, the app is still usable.
+    bootApp();
+  }
+}
+
+checkOnboarding();
+
+// ── In-app server console ──
+// Polls GET /console while the panel is open. Lines are kept in memory
+// (the server keeps the last 2000), so closing and reopening loses nothing.
+let consoleLast = 0, consoleTimer = null, consolePaused = false;
+const consoleBuf = [];
+function consoleClass(t){
+  if(/error|failed|traceback|exception|✗|⚠|refus/i.test(t)) return /^\s*\[(rate limit|summarize|living-memory|enforce)/i.test(t) ? 'warn' : 'err';
+  if(/^\[turn\]/.test(t)) return 'turn';
+  if(/^\[(llm|cache)/.test(t)) return 'llm';
+  if(/^\[(living-memory|summarize|memory|canon|embed)/.test(t)) return 'mem';
+  if(/^\[dice\]/.test(t)) return 'dice';
+  if(/^\[(rate limit|truncated|reasoning-empty|empty-content|sprite-fallback|enforce)/.test(t)) return 'warn';
+  return '';
+}
+function consoleKeep(cls){
+  const f = document.getElementById('consoleFilter').value;
+  if(f === 'ai') return ['turn','llm','mem','warn','err'].includes(cls);
+  if(f === 'err') return cls === 'warn' || cls === 'err';
+  return true;
+}
+function renderConsole(){
+  const el = document.getElementById('consoleLines');
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  el.innerHTML = consoleBuf.filter(l => consoleKeep(l.cls)).map(l =>
+    '<span class="t">' + new Date(l.ts*1000).toLocaleTimeString() + '</span> '
+    + '<span class="' + l.cls + '">' + escapeHTML(l.text) + '</span>').join('\n');
+  if(atBottom) el.scrollTop = el.scrollHeight;
+}
+async function pollConsole(){
+  if(consolePaused) return;
+  try {
+    const r = await fetch('/console?after=' + consoleLast);
+    if(!r.ok) return;
+    const d = await r.json();
+    if(d.last < consoleLast){ consoleBuf.length = 0; }   // server restarted
+    for(const l of d.lines){ consoleBuf.push({ts:l.ts, text:l.text, cls: l.stream === 'err' && !consoleClass(l.text) ? 'dice' : consoleClass(l.text)}); }
+    if(consoleBuf.length > 2000) consoleBuf.splice(0, consoleBuf.length - 2000);
+    consoleLast = d.last;
+    if(d.lines.length) renderConsole();
+  } catch(_){}
+}
+function toggleConsole(){
+  const p = document.getElementById('consolePanel');
+  const open = !p.classList.contains('open');
+  p.classList.toggle('open', open);
+  document.getElementById('consoleChip').classList.toggle('on', open);
+  clearInterval(consoleTimer);
+  if(open){ pollConsole(); consoleTimer = setInterval(pollConsole, 1500); }
+  try { localStorage.setItem('ameConsoleOpen', open ? '1' : '0'); } catch(_){}
+}
+function copyConsole(){
+  const text = consoleBuf.map(l => new Date(l.ts*1000).toLocaleTimeString() + ' ' + l.text).join('\n');
+  try { navigator.clipboard.writeText(text); } catch(_){}
+}
+try { if(localStorage.getItem('ameConsoleOpen') === '1') window.addEventListener('load', toggleConsole); } catch(_){}
+</script>
+</body>
+</html>

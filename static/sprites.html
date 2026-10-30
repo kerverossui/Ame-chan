@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ame — Sprite Manager</title>
+<link rel="icon" href="/images/favicon.png">
+<style>
+  :root{
+    --bg:#131215; --card:#1c1a1d; --card2:#232026; --line:#2a2724; --text:#ece7e0;
+    --muted:#9c948a; --accent:#ff8fc8; --cyan:#6fe3ff; --ok:#7dffa0; --bad:#e07a6e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font-family:-apple-system,'Segoe UI',Roboto,sans-serif;font-size:14px}
+  header{position:sticky;top:0;z-index:5;background:rgba(19,18,21,.96);
+         border-bottom:1px solid var(--line);padding:12px 16px}
+  .top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;max-width:1200px;margin:0 auto}
+  h1{font-size:18px;margin:0;font-weight:600}
+  h1 span{color:var(--accent)}
+  .back{color:var(--muted);text-decoration:none;font-size:13px}
+  .back:hover{color:var(--text)}
+  .stats{color:var(--muted);font-size:13px;margin-left:auto}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;max-width:1200px;margin:10px auto 0}
+  .tab{background:var(--card);border:1px solid var(--line);color:var(--muted);
+       border-radius:16px;padding:5px 12px;cursor:pointer;font-size:13px}
+  .tab.on{color:var(--text);border-color:var(--accent)}
+  input[type=search],input[type=text],select{background:var(--card);border:1px solid var(--line);
+       color:var(--text);border-radius:8px;padding:6px 10px;font-size:13px}
+  input[type=search]{flex:1;min-width:160px}
+  main{max-width:1200px;margin:0 auto;padding:16px}
+  .hint{color:var(--muted);font-size:12.5px;line-height:1.5;margin:0 0 14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;
+        display:flex;flex-direction:column;transition:border-color .15s}
+  .card.drag{border-color:var(--cyan)}
+  .card.missing .preview{opacity:.85}
+  .preview{position:relative;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;
+           background:conic-gradient(#1a181b 25%,#211e22 0 50%,#1a181b 0 75%,#211e22 0) 0 0/16px 16px;
+           cursor:pointer}
+  .preview img{max-width:100%;max-height:100%;object-fit:contain;image-rendering:auto}
+  .empty{color:var(--muted);font-size:12.5px;text-align:center;padding:28px 10px 10px;line-height:1.5}
+  @media (max-width:520px){ .empty{font-size:11.5px} }
+  .badge{position:absolute;top:8px;left:8px;font-size:11px;padding:2px 8px;border-radius:10px;
+         background:rgba(0,0,0,.6)}
+  .badge.miss{color:var(--bad)} .badge.cus{left:auto;right:8px;color:var(--cyan)}
+  .body{padding:10px 12px 12px;display:flex;flex-direction:column;gap:6px;flex:1}
+  .tag{font-family:ui-monospace,Consolas,monospace;font-size:13px;color:var(--accent);
+       cursor:copy;word-break:break-all}
+  .desc{color:var(--muted);font-size:12.5px;line-height:1.4;flex:1}
+  .meta{color:#7a736b;font-size:11.5px}
+  .variants{display:flex;gap:6px;flex-wrap:wrap}
+  .v{position:relative;width:44px;height:44px;border:1px solid var(--line);border-radius:6px;
+     overflow:hidden;cursor:pointer;background:#1a181b}
+  .v.on{border-color:var(--accent)}
+  .v img{width:100%;height:100%;object-fit:contain}
+  .v .x{position:absolute;top:0;right:0;width:16px;height:16px;line-height:14px;text-align:center;
+        background:rgba(0,0,0,.75);color:var(--bad);font-size:12px;border-bottom-left-radius:6px;display:none}
+  .v:hover .x{display:block}
+  .actions{display:flex;gap:6px;flex-wrap:wrap}
+  button{background:var(--card2);border:1px solid var(--line);color:var(--text);border-radius:8px;
+         padding:6px 10px;font-size:12.5px;cursor:pointer}
+  button:hover{border-color:#4a4440}
+  button.danger{color:var(--bad)}
+  button.primary{border-color:var(--accent);color:var(--accent)}
+  .newcard{border-style:dashed;justify-content:center}
+  .newcard form{padding:14px;display:flex;flex-direction:column;gap:8px}
+  .newcard .row{display:flex;gap:6px;align-items:center}
+  .newcard .row input{flex:1;min-width:0}
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%) translateY(20px);opacity:0;
+         background:#2a2628;border:1px solid var(--line);padding:10px 16px;border-radius:10px;
+         transition:.25s;z-index:20;max-width:90vw;font-size:13px}
+  .toast.show{opacity:1;transform:translateX(-50%)}
+  .busy{pointer-events:none;opacity:.6}
+  .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;
+            justify-content:center;z-index:30;cursor:zoom-out}
+  .lightbox img{max-width:92vw;max-height:88vh}
+  section h2{font-size:14px;color:var(--muted);font-weight:600;margin:22px 0 10px;
+             text-transform:uppercase;letter-spacing:.06em}
+  section:first-of-type h2{margin-top:0}
+  @media (max-width:520px){ .grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))} .stats{margin-left:0;width:100%} }
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <a class="back" href="/">← Chat</a>
+    <h1>Sprite <span>Manager</span></h1>
+    <div class="stats" id="stats">…</div>
+  </div>
+  <div class="bar">
+    <button class="tab on" data-f="all">All</button>
+    <button class="tab" data-f="ame">Ame</button>
+    <button class="tab" data-f="kangel">KAngel</button>
+    <button class="tab" data-f="missing">Missing image</button>
+    <input type="search" id="q" placeholder="Search emotion or description…">
+  </div>
+</header>
+<main>
+  <p class="hint">Each emotion is a tag the model ends its reply with. <b>Replace</b> sets the emotion's image;
+    <b>Add variant</b> adds another one and the app picks one of them at random each time. You can also drop an
+    image file on a card to replace it. GIF (animated), PNG, WebP or JPEG, up to <span id="maxmb">15</span> MB.
+    Removed images go to <code>images/sprites/_trash/</code>, never deleted.</p>
+  <div id="list"></div>
+</main>
+<div class="toast" id="toast"></div>
+<div class="lightbox" id="lightbox" onclick="this.style.display='none'"><img alt=""></div>
+<input type="file" id="picker" accept="image/gif,image/png,image/webp,image/jpeg" hidden>
+
+<script>
+let DATA = [], FILTER = 'all', QUERY = '', pending = null;
+const $ = s => document.querySelector(s);
+
+function toast(msg, bad){
+  const t = $('#toast');
+  t.textContent = msg; t.style.color = bad ? 'var(--bad)' : 'var(--text)';
+  t.classList.add('show'); clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove('show'), 2800);
+}
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function api(path, opts){
+  const r = await fetch(path, opts);
+  let data = {};
+  try { data = await r.json(); } catch(_){}
+  if(!r.ok) throw new Error(data.detail || ('Error ' + r.status));
+  return data;
+}
+
+async function load(){
+  const d = await api('/sprites_api/catalog');
+  DATA = d.emotions;
+  $('#maxmb').textContent = d.max_mb;
+  render();
+}
+
+function visible(e){
+  if(FILTER === 'ame' && e.family !== 'ame') return false;
+  if(FILTER === 'kangel' && e.family !== 'kangel') return false;
+  if(FILTER === 'missing' && e.files.length) return false;
+  if(QUERY && !(e.tag + ' ' + e.description).toLowerCase().includes(QUERY)) return false;
+  return true;
+}
+
+function card(e){
+  const first = e.files[0];
+  const v = e.files.length > 1 ? `<div class="variants">${e.files.map((f, i) =>
+      `<div class="v${i === 0 ? ' on' : ''}" title="${esc(f.name)}" data-url="${esc(f.url)}">
+         <img src="${esc(f.url)}" alt="" loading="lazy"><div class="x" data-del="${esc(f.name)}" title="Remove this image">×</div></div>`).join('')}</div>` : '';
+  return `<div class="card${first ? '' : ' missing'}" data-tag="${e.tag}">
+    <div class="preview" title="${first ? 'Click to enlarge' : 'Drop an image here'}">
+      ${first ? `<img src="${esc(first.url)}" alt="${e.tag}" loading="lazy">`
+              : `<div class="empty">No image yet<br>— no sprite is shown for this emotion.<br>Drop a file here or press Replace.</div>`}
+      ${first ? '' : '<span class="badge miss">missing</span>'}
+      ${e.custom ? '<span class="badge cus">added by you</span>' : ''}
+    </div>
+    <div class="body">
+      <div class="tag" title="Click to copy">${e.tag}</div>
+      <div class="desc">${esc(e.description)}</div>
+      ${v}
+      <div class="meta">${e.files.length ? e.files.length + (e.files.length > 1 ? ' variants' : ' image') + ' · ' : ''}used in ${e.times_used} repl${e.times_used === 1 ? 'y' : 'ies'}</div>
+      <div class="actions">
+        <button class="primary" data-act="replace">${first ? 'Replace' : 'Add image'}</button>
+        ${first ? '<button data-act="add">Add variant</button>' : ''}
+        ${first && e.files.length === 1 ? '<button class="danger" data-act="delone">Remove</button>' : ''}
+        ${e.custom ? '<button class="danger" data-act="rmemo">Delete emotion</button>' : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
+function newCard(){
+  return `<div class="card newcard"><form id="newform">
+    <b>+ New emotion</b>
+    <div class="row"><select id="nfam"><option value="ame">ame_</option><option value="kangel">kangel_</option></select>
+      <input type="text" id="nname" placeholder="name, e.g. pouting" maxlength="30" required></div>
+    <input type="text" id="ndesc" placeholder="When should she use it?" maxlength="160" required>
+    <button class="primary" type="submit">Create</button>
+    <div class="meta">The model learns new emotions from this description; add an image afterwards.</div>
+  </form></div>`;
+}
+
+function render(){
+  const total = DATA.length, withImg = DATA.filter(e => e.files.length).length;
+  $('#stats').textContent = `${total} emotions · ${withImg} with image · ${total - withImg} missing`;
+  let html = '';
+  for(const fam of ['ame', 'kangel']){
+    const items = DATA.filter(e => e.family === fam && visible(e));
+    if(!items.length) continue;
+    html += `<section><h2>${fam === 'ame' ? 'Ame — off stream' : 'KAngel — live on stream only'}</h2>`
+          + '<div class="grid">' + items.map(card).join('') + '</div></section>';
+  }
+  if(FILTER !== 'missing' && !QUERY) html += '<section><h2>Add an emotion</h2><div class="grid">' + newCard() + '</div></section>';
+  if(!html) html = '<p class="hint">Nothing matches.</p>';
+  $('#list').innerHTML = html;
+  const f = $('#newform'); if(f) f.onsubmit = addEmotion;
+}
+
+async function upload(tag, file, mode){
+  const c = document.querySelector(`.card[data-tag="${tag}"]`);
+  if(c) c.classList.add('busy');
+  try {
+    const fd = new FormData();
+    fd.append('tag', tag); fd.append('mode', mode); fd.append('file', file);
+    const r = await api('/sprites_api/upload', {method: 'POST', body: fd});
+    toast(`${tag}: ${mode === 'add' ? 'variant added' : 'image set'} (${r.name})`);
+    await load();
+  } catch(err){ toast(err.message, true); if(c) c.classList.remove('busy'); }
+}
+
+async function delFile(tag, name){
+  if(!confirm(`Remove ${name}?\nIt goes to images/sprites/_trash/.`)) return;
+  try { await api('/sprites_api/delete_file', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                              body: JSON.stringify({tag, name})});
+        toast('Moved to _trash'); await load(); }
+  catch(err){ toast(err.message, true); }
+}
+
+async function addEmotion(ev){
+  ev.preventDefault();
+  const tag = $('#nfam').value + '_' + $('#nname').value.trim().toLowerCase().replace(/\s+/g, '_');
+  try { await api('/sprites_api/add_emotion', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                              body: JSON.stringify({tag, description: $('#ndesc').value})});
+        toast(`${tag} created — now add its image`); await load();
+        const c = document.querySelector(`.card[data-tag="${tag}"]`);
+        if(c) c.scrollIntoView({behavior: 'smooth', block: 'center'}); }
+  catch(err){ toast(err.message, true); }
+}
+
+document.addEventListener('click', async ev => {
+  const tab = ev.target.closest('.tab');
+  if(tab){ document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t === tab)); FILTER = tab.dataset.f; render(); return; }
+  const c = ev.target.closest('.card[data-tag]');
+  if(!c) return;
+  const tag = c.dataset.tag, e = DATA.find(x => x.tag === tag);
+  const del = ev.target.closest('[data-del]');
+  if(del){ ev.stopPropagation(); return delFile(tag, del.dataset.del); }
+  const v = ev.target.closest('.v');
+  if(v){ c.querySelector('.preview img').src = v.dataset.url;
+         c.querySelectorAll('.v').forEach(x => x.classList.toggle('on', x === v)); return; }
+  if(ev.target.closest('.tag')){ try { await navigator.clipboard.writeText(tag); toast('Copied ' + tag); } catch(_){} return; }
+  const act = ev.target.closest('[data-act]');
+  if(act){
+    const a = act.dataset.act;
+    if(a === 'replace' || a === 'add'){ pending = {tag, mode: a}; $('#picker').value = ''; $('#picker').click(); }
+    else if(a === 'delone') delFile(tag, e.files[0].name);
+    else if(a === 'rmemo'){
+      if(!confirm(`Delete the emotion ${tag}?\nIts images go to images/sprites/_trash/.`)) return;
+      try { await api('/sprites_api/remove_emotion', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                                     body: JSON.stringify({tag})});
+            toast(tag + ' deleted'); await load(); } catch(err){ toast(err.message, true); }
+    }
+    return;
+  }
+  const img = ev.target.closest('.preview img');
+  if(img){ const lb = $('#lightbox'); lb.querySelector('img').src = img.src; lb.style.display = 'flex'; return; }
+  if(ev.target.closest('.preview') && !e.files.length){ pending = {tag, mode: 'replace'}; $('#picker').value = ''; $('#picker').click(); }
+});
+
+$('#picker').addEventListener('change', () => {
+  const f = $('#picker').files[0];
+  if(f && pending) upload(pending.tag, f, pending.mode);
+  pending = null;
+});
+
+// Drag & drop: dropping an image on a card replaces it.
+document.addEventListener('dragover', ev => {
+  const c = ev.target.closest('.card[data-tag]');
+  if(c){ ev.preventDefault(); document.querySelectorAll('.card.drag').forEach(x => x !== c && x.classList.remove('drag')); c.classList.add('drag'); }
+});
+document.addEventListener('dragleave', ev => { const c = ev.target.closest('.card[data-tag]'); if(c && !c.contains(ev.relatedTarget)) c.classList.remove('drag'); });
+document.addEventListener('drop', ev => {
+  const c = ev.target.closest('.card[data-tag]');
+  if(!c) return;
+  ev.preventDefault(); c.classList.remove('drag');
+  const f = ev.dataTransfer.files[0];
+  if(f) upload(c.dataset.tag, f, 'replace');
+});
+
+$('#q').addEventListener('input', ev => { QUERY = ev.target.value.trim().toLowerCase(); render(); });
+load().catch(err => { $('#list').innerHTML = '<p class="hint">Could not load the sprites: ' + esc(err.message) + '</p>'; });
+</script>
+</body>
+</html>
